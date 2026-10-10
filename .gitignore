@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Database & Runtime data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Facebook session files (CRITICAL: Do NOT commit session or cookies)
+storage_state.json
+session.json
+*.session
+cookies.json
+*.cookie
+
+# Logs & temporary files
+*.log
+logs/
+.pytest_cache/
+.coverage
+
+# IDE & Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo

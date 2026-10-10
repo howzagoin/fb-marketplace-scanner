@@ -1,0 +1,58 @@
+name: Hourly Facebook Marketplace Scanner
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Runs every hour
+  workflow_dispatch:      # Allows manual trigger from GitHub UI
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Run Marketplace Scanner Job
+        env:
+          DEFAULT_POSTCODE: '3011'
+          DEFAULT_RADIUS_KM: '50'
+          DEFAULT_MAX_PRICE: '0'
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          HEADLESS: 'true'
+        run: |
+          python -c "
+          from backend.db import init_db, get_filters
+          from schema import SearchFilter
+          from backend.scraper import scrape_marketplace_listings
+          from backend.notifier import send_alert_email
+          from backend.db import save_listings
+
+          init_db()
+          filters = [SearchFilter.from_dict(f) for f in get_filters() if f.get('enabled')]
+          print(f'Running scan for {len(filters)} enabled filter(s)...')
+          for f in filters:
+              print(f'Scanning: {f.name} (Postcode: {f.postcode}, Radius: {f.radius_km}km)')
+              try:
+                  items = scrape_marketplace_listings(f)
+                  new_count = save_listings(items)
+                  print(f'Found {len(items)} items ({new_count} new)')
+                  if new_count > 0 and f.notify_email:
+                      send_alert_email(f, items[:new_count])
+              except Exception as e:
+                  print(f'Error scanning {f.name}: {e}')
+          "

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Marketplace Scanner</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation Bar -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-icon">🔍</span>
+                    <span class="logo-text">FB Marketplace <span class="accent">Scanner</span></span>
+                </div>
+                <div class="status-pills">
+                    <div id="sessionPill" class="pill pill-warning">
+                        <span class="dot"></span> <span id="sessionStatusText">Checking Session...</span>
+                    </div>
+                    <div id="scannerPill" class="pill pill-idle">
+                        <span class="dot"></span> <span id="scannerStatusText">Scanner: Idle</span>
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="btnConnectFb" class="btn btn-secondary" title="Sign in via browser with 2FA to refresh Facebook session">
+                    🔑 Connect Facebook (2FA)
+                </button>
+                <button id="btnScanNow" class="btn btn-primary" title="Trigger immediate scan across all enabled rules">
+                    ⚡ Scan Now
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Tabs Navigation -->
+        <nav class="app-nav">
+            <button class="nav-tab active" data-tab="listings">
+                📦 Listings <span id="listingsCountBadge" class="badge">0</span>
+            </button>
+            <button class="nav-tab" data-tab="filters">
+                ⚙️ Search Rules & Filters <span id="rulesCountBadge" class="badge">0</span>
+            </button>
+            <button class="nav-tab" data-tab="logs">
+                📋 Activity & Logs
+            </button>
+            <button class="nav-tab" data-tab="settings">
+                🛠️ Settings
+            </button>
+        </nav>
+
+        <!-- Tab 1: Listings View -->
+        <main id="tab-listings" class="tab-pane active">
+            <!-- Filter & Search Toolbar -->
+            <div class="toolbar">
+                <div class="toolbar-search">
+                    <input type="text" id="listingSearchInput" placeholder="Filter listings by title or location..." />
+                </div>
+                <div class="toolbar-filters">
+                    <select id="filterSelectRule">
+                        <option value="">All Search Rules</option>
+                    </select>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="checkOnlyFavorites"> ⭐ Starred Only
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="checkShowDismissed"> 🗑️ Show Dismissed
+                    </label>
+                    <button id="btnRefreshListings" class="btn btn-icon" title="Refresh Listings">🔄</button>
+                </div>
+            </div>
+
+            <!-- Listings Grid -->
+            <div id="listingsGrid" class="listings-grid">
+                <!-- Dynamically populated -->
+            </div>
+            <div id="listingsEmpty" class="empty-state hidden">
+                <div class="empty-icon">📦</div>
+                <h3>No Listings Found</h3>
+                <p>Run a scan or adjust your search rules to discover Marketplace items.</p>
+                <button id="btnEmptyScan" class="btn btn-primary">Start Scan</button>
+            </div>
+        </main>
+
+        <!-- Tab 2: Search Rules View -->
+        <main id="tab-filters" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Search Terms & Radius Filters</h2>
+                    <p class="subtitle">Configure what Facebook Marketplace scans for, postcodes, and price ranges.</p>
+                </div>
+                <button id="btnNewRule" class="btn btn-primary">+ Add New Search Rule</button>
+            </div>
+
+            <div id="rulesList" class="rules-list">
+                <!-- Dynamically populated -->
+            </div>
+        </main>
+
+        <!-- Tab 3: Logs View -->
+        <main id="tab-logs" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Scanner Run History</h2>
+                    <p class="subtitle">History of previous scan jobs, timestamps, and findings.</p>
+                </div>
+                <button id="btnRefreshLogs" class="btn btn-secondary">Refresh Logs</button>
+            </div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Search Rule</th>
+                            <th>Status</th>
+                            <th>Found</th>
+                            <th>New</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody">
+                        <!-- Dynamically populated -->
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- Tab 4: Settings View -->
+        <main id="tab-settings" class="tab-pane">
+            <div class="section-header">
+                <h2>Application & Notification Settings</h2>
+            </div>
+            <div class="settings-card">
+                <form id="settingsForm">
+                    <div class="form-group">
+                        <label for="inputAlertEmail">Recipient Alert Email</label>
+                        <input type="email" id="inputAlertEmail" value="maclatchy@gmail.com" required>
+                        <small>New matching items found during scans will trigger an email notification here.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="switch-label">
+                            <input type="checkbox" id="checkAutoScan">
+                            <span class="switch-text">Enable Background Automatic Scheduled Scans</span>
+                        </label>
+                        <small>When enabled, the scanner runs periodically in the background while the app is active.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="inputScanInterval">Scan Interval (Minutes)</label>
+                        <input type="number" id="inputScanInterval" value="60" min="5" max="1440">
+                        <small>Recommended: 60 minutes (Hourly).</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- Rule Edit Modal -->
+    <div id="ruleModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Add Search Rule</h3>
+                <button id="modalClose" class="btn-close">&times;</button>
+            </div>
+            <form id="ruleForm">
+                <input type="hidden" id="ruleId">
+                <div class="form-group">
+                    <label for="ruleName">Rule Name</label>
+                    <input type="text" id="ruleName" placeholder="e.g. Free Items in 3011" required>
+                </div>
+                <div class="form-group">
+                    <label for="ruleQuery">Search Keyword / Term</label>
+                    <input type="text" id="ruleQuery" placeholder="Leave empty for all free items, or e.g. tools, sofa">
+                    <small>Leave empty to browse general marketplace feed.</small>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="rulePostcode">Postcode</label>
+                        <input type="text" id="rulePostcode" value="3011" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="ruleRadius">Radius (km)</label>
+                        <input type="number" id="ruleRadius" value="50" min="1" max="500" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="ruleMinPrice">Min Price ($)</label>
+                        <input type="number" id="ruleMinPrice" placeholder="Any" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="ruleMaxPrice">Max Price ($)</label>
+                        <input type="number" id="ruleMaxPrice" value="0" min="0">
+                        <small>Set to 0 for Free items only.</small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="ruleEnabled" checked> Rule Active
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="ruleNotify" checked> Email Alert on New Items
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" id="btnCancelRule" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Rule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="/js/main.js"></script>
+</body>
+</html>
