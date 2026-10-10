@@ -36,5 +36,7 @@ class Config:
 
     # Scraper settings
     HEADLESS = os.environ.get("HEADLESS", "true").lower() in ("true", "1", "yes")
+    DATA_DIR = DATA_DIR
+    SESSION_DIR = SESSION_DIR
     SESSION_FILE = SESSION_FILE
     DB_FILE = DB_FILE

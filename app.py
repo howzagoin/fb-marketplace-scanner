@@ -7,7 +7,7 @@ from backend.db import (
     get_listings, update_listing_status, get_scan_logs,
     get_setting, set_setting
 )
-from backend.scraper import get_session_info, capture_interactive_login
+from backend.scraper import get_session_info, capture_interactive_login, save_raw_cookies
 from backend.scheduler import scan_manager
 from schema import SearchFilter
 
@@ -140,16 +140,34 @@ def api_session_status():
 
 @app.route("/api/session/login", methods=["POST"])
 def api_session_login():
-    """Starts interactive login in a separate thread so browser doesn't block server request."""
+    """Starts interactive login with real browser (Brave/Chrome) with desktop window station."""
     def run_interactive():
-        capture_interactive_login(timeout_seconds=300)
+        import subprocess
+        # On Windows, launching via explorer/start ensures interactive desktop focus
+        try:
+            bat_path = os.path.join(Config.BASE_DIR, "Connect-Facebook.bat")
+            if os.path.exists(bat_path):
+                subprocess.Popen(["cmd.exe", "/c", "start", "", bat_path], shell=True)
+            else:
+                capture_interactive_login(timeout_seconds=300)
+        except Exception:
+            capture_interactive_login(timeout_seconds=300)
 
     t = threading.Thread(target=run_interactive, daemon=True)
     t.start()
     return jsonify({
         "success": True,
-        "message": "Interactive Facebook browser window launched. Please sign in and complete 2FA in that browser. Your session will automatically save once authenticated."
+        "message": "Interactive browser launched on your desktop. You can also paste your cookies below for instant connection."
     })
+
+@app.route("/api/session/cookies", methods=["POST"])
+def api_session_cookies():
+    data = request.json or {}
+    cookie_val = data.get("cookies") or data.get("raw") or data
+    res = save_raw_cookies(cookie_val)
+    if res.get("success"):
+        return jsonify(res)
+    return jsonify(res), 400
 
 # ----------------- Settings & Logs API -----------------
 

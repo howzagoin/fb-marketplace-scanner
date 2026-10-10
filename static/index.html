@@ -217,6 +217,54 @@
         </div>
     </div>
 
+    <!-- Facebook Session Connector Modal -->
+    <div id="sessionModal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h3>Connect Facebook Session (2FA)</h3>
+                <button id="sessionModalClose" class="btn-close">&times;</button>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h4 style="font-size: 0.95rem; margin-bottom: 8px; color: var(--accent);">Option 1: Launch Desktop Browser (Brave / Chrome)</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
+                    Launches a visible browser window on your Windows desktop. Sign in, complete 2FA, and your session will be saved automatically.
+                </p>
+                <button id="btnLaunchDesktopBrowser" class="btn btn-primary" style="width: 100%;">
+                    🚀 Launch Desktop Browser for Sign-In
+                </button>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-color); padding-top: 18px;">
+                <h4 style="font-size: 0.95rem; margin-bottom: 8px; color: var(--accent);">Option 2: Instant Cookie Import (100% Reliable)</h4>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
+                    If you are already logged in to Facebook in your daily browser, copy your cookies (from DevTools or any cookie extension) and paste them here:
+                </p>
+                <form id="cookieForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="inputCUser">c_user (User ID)</label>
+                            <input type="text" id="inputCUser" placeholder="e.g. 1000889218...">
+                        </div>
+                        <div class="form-group">
+                            <label for="inputXs">xs (Session Token)</label>
+                            <input type="text" id="inputXs" placeholder="e.g. 21%3ABz...">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="inputRawCookies">Or paste raw cookies / JSON</label>
+                        <input type="text" id="inputRawCookies" placeholder="c_user=...; xs=... or JSON array">
+                    </div>
+                    <div class="modal-actions" style="margin-top: 14px;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">
+                            💾 Save & Activate Facebook Session
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Notification Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 

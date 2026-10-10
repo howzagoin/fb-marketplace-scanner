@@ -1,18 +1,31 @@
 import os
 import re
+import sys
 import time
 import json
 import logging
 from typing import List, Dict, Any, Optional
 from urllib.parse import quote
-from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
+from playwright.sync_api import sync_playwright
 
 from backend.config import Config
 from schema import SearchFilter, ListingItem
 
 logger = logging.getLogger(__name__)
 
-# Map Australian postcode ranges to major Facebook Marketplace city slugs
+def get_browser_executable() -> Optional[str]:
+    candidates = [
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
 def get_city_slug_for_postcode(postcode: str) -> str:
     try:
         pc = int(postcode.strip())
@@ -98,48 +111,160 @@ def get_session_info() -> Dict[str, Any]:
         "last_saved": modified_time
     }
 
-def capture_interactive_login(timeout_seconds: int = 180) -> Dict[str, Any]:
+def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
     """
-    Opens a visible browser for the user to log into Facebook.
+    Parses and saves cookies from string, list, or dict into Playwright storage_state format.
+    Accepts:
+      - JSON list of cookie dicts
+      - Semi-colon separated string (e.g. 'c_user=123; xs=abc...')
+      - Dict with 'c_user', 'xs', etc.
+    """
+    cookie_list = []
+    
+    if isinstance(cookie_input, str):
+        cookie_input = cookie_input.strip()
+        if cookie_input.startswith("[") or cookie_input.startswith("{"):
+            try:
+                parsed = json.loads(cookie_input)
+                if isinstance(parsed, list):
+                    cookie_list = parsed
+                elif isinstance(parsed, dict):
+                    if "cookies" in parsed:
+                        cookie_list = parsed["cookies"]
+                    else:
+                        for k, v in parsed.items():
+                            cookie_list.append({"name": k, "value": str(v), "domain": ".facebook.com", "path": "/"})
+            except Exception:
+                pass
+        
+        if not cookie_list:
+            # Parse header string: c_user=123; xs=abc
+            pairs = cookie_input.split(";")
+            for p in pairs:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    if k and v:
+                        cookie_list.append({
+                            "name": k,
+                            "value": v,
+                            "domain": ".facebook.com",
+                            "path": "/",
+                            "secure": True,
+                            "httpOnly": k in ("xs", "sb", "fr"),
+                            "sameSite": "None"
+                        })
+    elif isinstance(cookie_input, list):
+        cookie_list = cookie_input
+    elif isinstance(cookie_input, dict):
+        if "cookies" in cookie_input:
+            cookie_list = cookie_input["cookies"]
+        else:
+            for k, v in cookie_input.items():
+                cookie_list.append({"name": k, "value": str(v), "domain": ".facebook.com", "path": "/"})
+
+    # Standardize cookies for Playwright
+    formatted_cookies = []
+    has_c_user = False
+    for c in cookie_list:
+        name = c.get("name")
+        val = c.get("value")
+        if not name or val is None:
+            continue
+        if name == "c_user":
+            has_c_user = True
+        formatted_cookies.append({
+            "name": str(name),
+            "value": str(val),
+            "domain": c.get("domain", ".facebook.com"),
+            "path": c.get("path", "/"),
+            "expires": float(c.get("expires", time.time() + 31536000)),
+            "httpOnly": bool(c.get("httpOnly", name in ("xs", "sb", "fr"))),
+            "secure": bool(c.get("secure", True)),
+            "sameSite": c.get("sameSite", "None")
+        })
+
+    if not has_c_user:
+        return {"success": False, "error": "Missing essential 'c_user' cookie. Please include c_user and xs."}
+
+    storage_state = {
+        "cookies": formatted_cookies,
+        "origins": []
+    }
+
+    Config.SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    with open(Config.SESSION_FILE, "w", encoding="utf-8") as f:
+        json.dump(storage_state, f, indent=2)
+
+    return {"success": True, "message": f"Successfully imported {len(formatted_cookies)} cookies. Facebook session is active!"}
+
+def capture_interactive_login(timeout_seconds: int = 300) -> Dict[str, Any]:
+    """
+    Opens a visible browser using Brave or Chrome with a persistent profile for user sign-in.
     Waits for authentication cookies (c_user) to be stored, then saves the storage state.
     """
     result = {"success": False, "message": ""}
+    browser_exe = get_browser_executable()
+    user_data_dir = str(Config.DATA_DIR / "browser_profile")
+    os.makedirs(user_data_dir, exist_ok=True)
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            args=[
+        launch_kwargs = {
+            "user_data_dir": user_data_dir,
+            "headless": False,
+            "args": [
                 "--start-maximized",
                 "--disable-blink-features=AutomationControlled",
-                "--no-sandbox"
+                "--no-sandbox",
+                "--disable-infobars"
             ]
-        )
-        context = browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
-        page.goto("https://www.facebook.com/login/")
+        }
+        if browser_exe:
+            launch_kwargs["executable_path"] = browser_exe
 
-        start_time = time.time()
-        authenticated = False
+        try:
+            context = p.chromium.launch_persistent_context(**launch_kwargs)
+            page = context.pages[0] if context.pages else context.new_page()
 
-        while time.time() - start_time < timeout_seconds:
-            time.sleep(2)
-            cookies = context.cookies()
-            if any(c.get("name") == "c_user" for c in cookies):
-                authenticated = True
-                break
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
 
-        if authenticated:
-            # Save storage state
-            context.storage_state(path=str(Config.SESSION_FILE))
-            result["success"] = True
-            result["message"] = "Facebook session captured successfully with active login!"
-        else:
+            page.goto("https://www.facebook.com/marketplace/", timeout=45000)
+
+            start_time = time.time()
+            authenticated = False
+
+            while time.time() - start_time < timeout_seconds:
+                time.sleep(2)
+                try:
+                    cookies = context.cookies()
+                    if any(c.get("name") == "c_user" for c in cookies):
+                        authenticated = True
+                        break
+                except Exception:
+                    # User may have closed the page or browser
+                    break
+
+            if authenticated:
+                context.storage_state(path=str(Config.SESSION_FILE))
+                result["success"] = True
+                result["message"] = "Facebook session verified and saved successfully!"
+            else:
+                result["success"] = False
+                result["message"] = "Login timed out or window was closed before Facebook session was verified."
+
+            try:
+                context.close()
+            except Exception:
+                pass
+        except Exception as e:
             result["success"] = False
-            result["message"] = "Login timed out before c_user session was verified."
+            result["message"] = f"Interactive login error: {str(e)}"
 
-        browser.close()
     return result
 
 def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[ListingItem]:
@@ -150,6 +275,7 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
     items: List[ListingItem] = []
     seen_ids = set()
     coords = get_approx_coordinates(f.postcode)
+    browser_exe = get_browser_executable()
 
     with sync_playwright() as p:
         launch_args = [
@@ -159,10 +285,14 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
             "--disable-infobars"
         ]
         
-        browser = p.chromium.launch(
-            headless=Config.HEADLESS,
-            args=launch_args
-        )
+        launch_kwargs = {
+            "headless": Config.HEADLESS,
+            "args": launch_args
+        }
+        if browser_exe:
+            launch_kwargs["executable_path"] = browser_exe
+
+        browser = p.chromium.launch(**launch_kwargs)
 
         context_kwargs = {
             "viewport": {"width": 1366, "height": 900},
@@ -199,7 +329,6 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                 page.wait_for_timeout(1500)
 
             # Extract listing links
-            # Facebook Marketplace item links look like /marketplace/item/1234567890/
             links = page.query_selector_all("a[href*='/marketplace/item/']")
             
             for link_elem in links:
@@ -215,26 +344,18 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     seen_ids.add(listing_id)
 
                     full_url = href if href.startswith("http") else f"https://www.facebook.com{href}"
-                    # Strip extraneous query parameters from listing URL
                     clean_url = full_url.split("?")[0] if "?" in full_url else full_url
 
-                    # Get inner text and image
                     text_content = link_elem.inner_text().strip()
                     lines = [line.strip() for line in text_content.split("\n") if line.strip()]
 
-                    # Look for image
                     img_elem = link_elem.query_selector("img")
                     img_url = img_elem.get_attribute("src") if img_elem else ""
 
-                    # Default fallback parsing
                     title = "Marketplace Item"
                     price_str = "Free" if (f.max_price == 0) else ""
                     location_str = f"Postcode {f.postcode}"
 
-                    # Typical FB listing card lines:
-                    # Line 0: Price (e.g., "Free" or "$50")
-                    # Line 1: Title
-                    # Line 2: Location
                     if len(lines) >= 3:
                         price_str = lines[0]
                         title = lines[1]
@@ -249,7 +370,6 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     elif len(lines) == 1:
                         title = lines[0]
 
-                    # Parse numeric price
                     price_num = 0.0
                     digits = re.findall(r"\d+", price_str.replace(",", ""))
                     if digits and "free" not in price_str.lower():
@@ -275,3 +395,11 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
             browser.close()
 
     return items
+
+if __name__ == "__main__":
+    if "--login" in sys.argv:
+        print("Starting interactive Facebook login with real browser...")
+        res = capture_interactive_login(timeout_seconds=300)
+        print("Result:", res)
+    else:
+        print("Facebook Marketplace Scraper Module")

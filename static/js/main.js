@@ -27,6 +27,13 @@ const modalClose = document.getElementById('modalClose');
 const btnCancelRule = document.getElementById('btnCancelRule');
 const ruleForm = document.getElementById('ruleForm');
 const modalTitle = document.getElementById('modalTitle');
+const sessionModal = document.getElementById('sessionModal');
+const sessionModalClose = document.getElementById('sessionModalClose');
+const btnLaunchDesktopBrowser = document.getElementById('btnLaunchDesktopBrowser');
+const cookieForm = document.getElementById('cookieForm');
+const inputCUser = document.getElementById('inputCUser');
+const inputXs = document.getElementById('inputXs');
+const inputRawCookies = document.getElementById('inputRawCookies');
 const logsTableBody = document.getElementById('logsTableBody');
 const btnRefreshLogs = document.getElementById('btnRefreshLogs');
 const settingsForm = document.getElementById('settingsForm');
@@ -71,7 +78,11 @@ function initTabs() {
 
 // Event Listeners
 function initEventListeners() {
-    btnConnectFb.addEventListener('click', handleConnectFb);
+    btnConnectFb.addEventListener('click', openSessionModal);
+    sessionModalClose.addEventListener('click', closeSessionModal);
+    btnLaunchDesktopBrowser.addEventListener('click', handleLaunchDesktopBrowser);
+    cookieForm.addEventListener('submit', handleSaveCookies);
+
     btnScanNow.addEventListener('click', handleTriggerScan);
     if (btnEmptyScan) btnEmptyScan.addEventListener('click', handleTriggerScan);
     btnRefreshListings.addEventListener('click', loadListings);
@@ -132,12 +143,17 @@ async function checkScannerStatus() {
     }
 }
 
-// Connect Facebook (Interactive Session Launch)
-async function handleConnectFb() {
-    if (!confirm('This will open a browser window for you to log into Facebook and complete 2FA. Once signed in, the session will be saved locally. Continue?')) {
-        return;
-    }
-    showToast('Launching interactive login browser...', 'info');
+// Connect Facebook Session Modal & Handlers
+function openSessionModal() {
+    sessionModal.classList.remove('hidden');
+}
+
+function closeSessionModal() {
+    sessionModal.classList.add('hidden');
+}
+
+async function handleLaunchDesktopBrowser() {
+    showToast('Launching desktop browser for sign-in...', 'info');
     try {
         const res = await fetch('/api/session/login', { method: 'POST' });
         const data = await res.json();
@@ -148,6 +164,47 @@ async function handleConnectFb() {
         }
     } catch (e) {
         showToast('Error connecting to backend: ' + e.message, 'danger');
+    }
+}
+
+async function handleSaveCookies(e) {
+    e.preventDefault();
+    const cUser = inputCUser.value.trim();
+    const xs = inputXs.value.trim();
+    const raw = inputRawCookies.value.trim();
+
+    let payload = {};
+    if (raw) {
+        payload = { cookies: raw };
+    } else if (cUser && xs) {
+        payload = {
+            cookies: [
+                { name: 'c_user', value: cUser },
+                { name: 'xs', value: xs }
+            ]
+        };
+    } else {
+        showToast('Please enter both c_user and xs, or paste raw cookies.', 'danger');
+        return;
+    }
+
+    try {
+        showToast('Saving and verifying Facebook session...', 'info');
+        const res = await fetch('/api/session/cookies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message || 'Facebook session activated!', 'info');
+            closeSessionModal();
+            checkScannerStatus();
+        } else {
+            showToast(data.error || 'Invalid session cookies', 'danger');
+        }
+    } catch (e) {
+        showToast('Error saving cookies: ' + e.message, 'danger');
     }
 }
 
