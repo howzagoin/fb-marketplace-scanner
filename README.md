@@ -60,7 +60,7 @@ playwright install chromium
 ```bash
 python app.py
 ```
-Open your browser to: **`http://127.0.0.1:5060`**
+Open your browser to: **`http://127.0.0.1:5080`**
 
 ---
 
