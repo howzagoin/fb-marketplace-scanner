@@ -18,7 +18,7 @@ load_dotenv(BASE_DIR / ".env")
 
 class Config:
     # Web server
-    PORT = int(os.environ.get("PORT", 5055))
+    PORT = int(os.environ.get("PORT", 5060))
     HOST = os.environ.get("HOST", "127.0.0.1")
     SECRET_KEY = os.environ.get("SECRET_KEY", "fb-marketplace-scanner-dev-key")
 
