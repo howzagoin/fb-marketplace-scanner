@@ -34,7 +34,7 @@ class ScanManager:
             "is_scanning": self.is_running,
             "status_message": self.status_message,
             "last_scan_time": self.last_scan_time,
-            "auto_scan_enabled": get_setting("auto_scan_enabled", "0") == "1",
+            "auto_scan_enabled": get_setting("auto_scan_enabled", "1") == "1",
             "scan_interval_minutes": int(get_setting("scan_interval_minutes", "60"))
         }
 
@@ -48,7 +48,7 @@ class ScanManager:
     def _scheduler_loop(self):
         while not self.stop_event.is_set():
             try:
-                auto_enabled = get_setting("auto_scan_enabled", "0") == "1"
+                auto_enabled = get_setting("auto_scan_enabled", "1") == "1"
                 interval_min = int(get_setting("scan_interval_minutes", "60"))
                 interval_sec = max(interval_min * 60, 300) # Minimum 5 minutes
 

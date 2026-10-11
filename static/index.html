@@ -201,18 +201,28 @@
                         <small>New matching items found during scans will trigger an email notification here.</small>
                     </div>
 
-                    <div class="form-group">
-                        <label class="switch-label">
-                            <input type="checkbox" id="checkAutoScan">
-                            <span class="switch-text">Enable Background Automatic Scheduled Scans</span>
-                        </label>
-                        <small>When enabled, the scanner runs periodically in the background while the app is active.</small>
+                    <div class="form-group" style="background: var(--bg-primary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-weight: 600; font-size: 0.95rem;">⏱️ Automated Scan Schedule</span>
+                            <span class="pill pill-success" id="scheduleStatusPill">
+                                <span class="dot"></span> Active
+                            </span>
+                        </div>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
+                            Scans run automatically on schedule whether this dashboard is open or closed (via GitHub Actions hourly workflow and the background scanner).
+                        </p>
+                        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                            <label class="switch-label" style="margin-bottom: 0;">
+                                <input type="checkbox" id="checkAutoScan" checked>
+                                <span class="switch-text">Automated Scheduled Scans Active</span>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="form-group">
-                        <label for="inputScanInterval">Scan Interval (Minutes)</label>
+                        <label for="inputScanInterval">Scan Frequency (Minutes)</label>
                         <input type="number" id="inputScanInterval" value="60" min="5" max="1440">
-                        <small>Recommended: 60 minutes (Hourly).</small>
+                        <small>Default: 60 minutes (Hourly). Runs automatically on this interval in the background.</small>
                     </div>
 
                     <button type="submit" class="btn btn-primary">Save Settings</button>

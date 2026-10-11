@@ -217,7 +217,7 @@ def api_get_settings():
         "success": True,
         "settings": {
             "alert_email": get_setting("alert_email", Config.DEFAULT_ALERT_EMAIL),
-            "auto_scan_enabled": get_setting("auto_scan_enabled", "0") == "1",
+            "auto_scan_enabled": get_setting("auto_scan_enabled", "1") == "1",
             "scan_interval_minutes": int(get_setting("scan_interval_minutes", "60"))
         }
     })

@@ -602,8 +602,23 @@ async function loadSettings() {
         if (data.success && data.settings) {
             const s = data.settings;
             document.getElementById('inputAlertEmail').value = s.alert_email || 'maclatchy@gmail.com';
-            document.getElementById('checkAutoScan').checked = Boolean(s.auto_scan_enabled);
+            const isAuto = Boolean(s.auto_scan_enabled);
+            const checkAuto = document.getElementById('checkAutoScan');
+            checkAuto.checked = isAuto;
             document.getElementById('inputScanInterval').value = s.scan_interval_minutes || 60;
+
+            const schedPill = document.getElementById('scheduleStatusPill');
+            if (schedPill) {
+                schedPill.className = isAuto ? 'pill pill-success' : 'pill pill-warning';
+                schedPill.innerHTML = `<span class="dot"></span> ${isAuto ? 'Active' : 'Paused'}`;
+            }
+
+            checkAuto.onchange = () => {
+                if (schedPill) {
+                    schedPill.className = checkAuto.checked ? 'pill pill-success' : 'pill pill-warning';
+                    schedPill.innerHTML = `<span class="dot"></span> ${checkAuto.checked ? 'Active' : 'Paused'}`;
+                }
+            };
         }
     } catch (e) {
         console.error('Error loading settings:', e);
