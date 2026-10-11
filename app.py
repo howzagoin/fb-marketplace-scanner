@@ -167,11 +167,22 @@ def api_scanner_status():
 def api_scanner_run():
     data = request.json or {}
     filter_id = data.get("filter_id")
-    if filter_id:
-        scan_manager.run_scan_for_filter(int(filter_id))
-    else:
-        scan_manager.run_scan_all()
-    return jsonify({"success": True, "message": "Scan started in background."})
+    try:
+        if filter_id is not None and str(filter_id).isdigit():
+            scan_manager.run_scan_for_filter(int(filter_id))
+        else:
+            scan_manager.run_scan_all()
+        return jsonify({"success": True, "message": "Scan started in background."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.errorhandler(500)
+def handle_500_error(e):
+    return jsonify({"success": False, "error": str(e)}), 500
+
+@app.errorhandler(400)
+def handle_400_error(e):
+    return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route("/api/session/status", methods=["GET"])
 def api_session_status():

@@ -94,8 +94,8 @@ function initEventListeners() {
     btnLaunchDesktopBrowser.addEventListener('click', handleLaunchDesktopBrowser);
     cookieForm.addEventListener('submit', handleSaveCookies);
 
-    btnScanNow.addEventListener('click', handleTriggerScan);
-    if (btnEmptyScan) btnEmptyScan.addEventListener('click', handleTriggerScan);
+    btnScanNow.addEventListener('click', () => handleTriggerScan());
+    if (btnEmptyScan) btnEmptyScan.addEventListener('click', () => handleTriggerScan());
     btnRefreshListings.addEventListener('click', loadListings);
     listingSearchInput.addEventListener('input', debounce(loadListings, 300));
     filterSelectRule.addEventListener('change', loadListings);
@@ -228,7 +228,8 @@ async function handleSaveCookies(e) {
 async function handleTriggerScan(ruleId = null) {
     showToast('Starting scan in background...', 'info');
     try {
-        const body = ruleId ? { filter_id: ruleId } : {};
+        const isValidId = (typeof ruleId === 'number' && !isNaN(ruleId)) || (typeof ruleId === 'string' && /^\d+$/.test(ruleId));
+        const body = isValidId ? { filter_id: parseInt(ruleId) } : {};
         const res = await fetch('/api/scanner/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
