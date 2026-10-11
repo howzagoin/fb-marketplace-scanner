@@ -5,7 +5,9 @@ from backend.config import Config
 from backend.db import (
     init_db, get_filters, get_filter, save_filter, delete_filter,
     get_listings, update_listing_status, get_scan_logs,
-    get_setting, set_setting
+    get_setting, set_setting,
+    get_interests, add_interest, delete_interest,
+    toggle_interest_instant_alert, record_listing_interest
 )
 from backend.scraper import get_session_info, capture_interactive_login, save_raw_cookies
 from backend.scheduler import scan_manager
@@ -85,6 +87,7 @@ def api_toggle_filter(filter_id):
 def api_get_listings():
     filter_id = request.args.get("filter_id", type=int)
     keyword = request.args.get("keyword", "")
+    interest_status = request.args.get("interest_status", "all")
     show_dismissed = request.args.get("show_dismissed", "0") in ("1", "true")
     only_favorites = request.args.get("only_favorites", "0") in ("1", "true")
     limit = request.args.get("limit", 100, type=int)
@@ -93,12 +96,20 @@ def api_get_listings():
     items = get_listings(
         filter_id=filter_id,
         keyword=keyword,
+        interest_status=interest_status,
         show_dismissed=show_dismissed,
         only_favorites=only_favorites,
         limit=limit,
         offset=offset
     )
     return jsonify({"success": True, "listings": items, "count": len(items)})
+
+@app.route("/api/listings/<listing_id>/interest", methods=["POST"])
+def api_set_listing_interest(listing_id):
+    data = request.json or {}
+    status = data.get("status", "none")  # 'interested', 'not_interested', 'none'
+    res = record_listing_interest(listing_id, status)
+    return jsonify(res)
 
 @app.route("/api/listings/<listing_id>/favorite", methods=["POST"])
 def api_toggle_favorite(listing_id):
@@ -113,6 +124,35 @@ def api_toggle_dismiss(listing_id):
     is_dis = data.get("is_dismissed")
     update_listing_status(listing_id, is_dismissed=is_dis)
     return jsonify({"success": True, "listing_id": listing_id, "is_dismissed": is_dis})
+
+# ----------------- User Interest Profile API -----------------
+
+@app.route("/api/interests", methods=["GET"])
+def api_get_interests():
+    itype = request.args.get("type")
+    items = get_interests(interest_type=itype)
+    return jsonify({"success": True, "interests": items})
+
+@app.route("/api/interests", methods=["POST"])
+def api_add_interest():
+    data = request.json or {}
+    kw = data.get("keyword", "").strip()
+    instant = bool(data.get("instant_alert", True))
+    itype = data.get("type", "interested")
+    if not kw:
+        return jsonify({"success": False, "error": "Keyword required"}), 400
+    item_id = add_interest(kw, instant_alert=instant, interest_type=itype)
+    return jsonify({"success": True, "id": item_id, "message": f"Added '{kw}' to {itype} list."})
+
+@app.route("/api/interests/<int:interest_id>", methods=["DELETE"])
+def api_delete_interest(interest_id):
+    delete_interest(interest_id)
+    return jsonify({"success": True, "message": "Interest removed."})
+
+@app.route("/api/interests/<int:interest_id>/toggle-alert", methods=["POST"])
+def api_toggle_interest_alert(interest_id):
+    new_state = toggle_interest_instant_alert(interest_id)
+    return jsonify({"success": True, "instant_alert": new_state})
 
 # ----------------- Scanner & Session API -----------------
 

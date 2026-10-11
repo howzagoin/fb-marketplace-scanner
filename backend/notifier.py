@@ -21,16 +21,20 @@ def send_alert_email(filter_obj: SearchFilter, new_items: List[ListingItem]) -> 
     smtp_user = Config.SMTP_USER
     smtp_pass = Config.SMTP_PASS
 
-    subject = f"[Marketplace Alert] {len(new_items)} New Matching Item(s) - {filter_obj.name}"
+    has_instant = any(getattr(item, 'instant_match', False) for item in new_items)
+    priority_prefix = "⭐ [PRIORITY ALERT] " if has_instant else "[Marketplace Alert] "
+    subject = f"{priority_prefix}{len(new_items)} New Matching Item(s) - {filter_obj.name}"
 
     # Build HTML body
     items_html = ""
     for item in new_items:
         img_tag = f'<img src="{item.image_url}" alt="{item.title}" style="max-width:180px; max-height:140px; object-fit:cover; border-radius:6px; margin-right:15px;" />' if item.image_url else ''
+        star_badge = '<div style="margin-bottom:6px;"><span style="background:#eab308; color:#0f172a; font-weight:bold; padding:3px 8px; border-radius:4px; font-size:11px;">⭐ IMMEDIATE INTEREST MATCH</span></div>' if getattr(item, 'instant_match', False) else ''
         items_html += f"""
         <div style="display:flex; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:12px; background-color:#ffffff;">
             {img_tag}
             <div>
+                {star_badge}
                 <h3 style="margin:0 0 6px 0; font-size:16px;"><a href="{item.url}" target="_blank" style="color:#2563eb; text-decoration:none;">{item.title}</a></h3>
                 <p style="margin:0 0 4px 0; font-weight:bold; color:#16a34a; font-size:15px;">{item.price}</p>
                 <p style="margin:0 0 8px 0; color:#64748b; font-size:13px;">📍 {item.location}</p>

@@ -1,12 +1,14 @@
 import sqlite3
 import time
+import re
 from typing import List, Dict, Any, Optional
 from backend.config import Config
 from schema import SearchFilter, ListingItem
 
 def get_connection():
-    conn = sqlite3.connect(Config.DB_FILE)
+    conn = sqlite3.connect(Config.DB_FILE, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 def init_db():
@@ -73,7 +75,31 @@ def init_db():
     )
     """)
 
+    # User product interest & exclusion profiles
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_interests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        keyword TEXT NOT NULL UNIQUE,
+        instant_alert INTEGER DEFAULT 1,
+        type TEXT DEFAULT 'interested',
+        created_at REAL NOT NULL
+    )
+    """)
+
     conn.commit()
+
+    # Column migrations for existing tables
+    try:
+        cursor.execute("ALTER TABLE listings ADD COLUMN interest_status TEXT DEFAULT 'none'")
+        conn.commit()
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE listings ADD COLUMN instant_match INTEGER DEFAULT 0")
+        conn.commit()
+    except Exception:
+        pass
 
     # Insert default filter if table is empty
     cursor.execute("SELECT COUNT(*) as cnt FROM search_filters")
@@ -171,19 +197,47 @@ def delete_filter(filter_id: int):
     conn.close()
 
 def save_listings(items: List[ListingItem]) -> int:
-    """Saves listings and returns count of newly inserted items."""
+    """Saves listings, applying user interest and exclusion rules, and returns count of newly inserted items."""
     conn = get_connection()
     cursor = conn.cursor()
     new_count = 0
     now = time.time()
 
+    # Load current interest and exclusion keywords
+    cursor.execute("SELECT keyword, instant_alert, type FROM user_interests")
+    interests = [dict(r) for r in cursor.fetchall()]
+    disliked_kws = [i["keyword"].lower() for i in interests if i["type"] == "disliked"]
+    interested_items = [i for i in interests if i["type"] == "interested"]
+
     for item in items:
-        cursor.execute("SELECT listing_id FROM listings WHERE listing_id = ?", (item.listing_id,))
+        cursor.execute("SELECT listing_id, interest_status, is_favorite, is_dismissed, instant_match FROM listings WHERE listing_id = ?", (item.listing_id,))
         exists = cursor.fetchone()
+        
+        # Calculate interest flags based on title
+        title_lower = item.title.lower()
+        auto_dismiss = any(dk in title_lower for dk in disliked_kws) if disliked_kws else False
+        auto_interested = False
+        instant_match = False
+
+        for ii in interested_items:
+            if ii["keyword"] in title_lower:
+                auto_interested = True
+                if ii["instant_alert"]:
+                    instant_match = True
+                break
+
+        final_interest = "not_interested" if auto_dismiss else ("interested" if auto_interested else "none")
+        final_dismissed = 1 if auto_dismiss else (1 if item.is_dismissed else 0)
+        final_fav = 1 if auto_interested else (1 if item.is_favorite else 0)
+
         if not exists:
             cursor.execute("""
-            INSERT INTO listings (listing_id, title, price, price_num, location, url, image_url, search_filter_id, first_seen, is_favorite, is_dismissed, is_notified)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO listings (
+                listing_id, title, price, price_num, location, url, image_url,
+                search_filter_id, first_seen, is_favorite, is_dismissed, is_notified,
+                interest_status, instant_match
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item.listing_id,
                 item.title,
@@ -194,18 +248,32 @@ def save_listings(items: List[ListingItem]) -> int:
                 item.image_url,
                 item.search_filter_id,
                 item.first_seen or now,
-                1 if item.is_favorite else 0,
+                final_fav,
+                final_dismissed,
                 0,
-                0
+                final_interest,
+                1 if instant_match else 0
             ))
             new_count += 1
         else:
-            # Update title, price, location in case they changed
+            # Preserve user's manual interest rating if already set
+            existing_interest = exists["interest_status"] or "none"
+            existing_fav = exists["is_favorite"]
+            existing_dis = exists["is_dismissed"]
+
+            use_interest = existing_interest if existing_interest != "none" else final_interest
+            use_fav = existing_fav if existing_interest != "none" else final_fav
+            use_dis = existing_dis if existing_interest != "none" else final_dismissed
+
             cursor.execute("""
             UPDATE listings
-            SET title = ?, price = ?, price_num = ?, location = ?, image_url = ?
+            SET title = ?, price = ?, price_num = ?, location = ?, image_url = ?,
+                interest_status = ?, is_favorite = ?, is_dismissed = ?, instant_match = ?
             WHERE listing_id = ?
-            """, (item.title, item.price, item.price_num or 0, item.location, item.image_url, item.listing_id))
+            """, (
+                item.title, item.price, item.price_num or 0, item.location, item.image_url,
+                use_interest, use_fav, use_dis, 1 if instant_match else 0, item.listing_id
+            ))
 
     conn.commit()
     conn.close()
@@ -214,6 +282,7 @@ def save_listings(items: List[ListingItem]) -> int:
 def get_listings(
     filter_id: Optional[int] = None,
     keyword: Optional[str] = None,
+    interest_status: Optional[str] = None,
     show_dismissed: bool = False,
     only_favorites: bool = False,
     limit: int = 100,
@@ -235,6 +304,10 @@ def get_listings(
     if only_favorites:
         conditions.append("l.is_favorite = 1")
 
+    if interest_status and interest_status != "all":
+        conditions.append("l.interest_status = ?")
+        params.append(interest_status)
+
     if keyword and keyword.strip():
         conditions.append("(l.title LIKE ? OR l.location LIKE ?)")
         kw = f"%{keyword.strip()}%"
@@ -247,7 +320,7 @@ def get_listings(
     FROM listings l
     LEFT JOIN search_filters f ON l.search_filter_id = f.id
     {where_clause}
-    ORDER BY l.first_seen DESC
+    ORDER BY l.instant_match DESC, l.is_favorite DESC, l.first_seen DESC
     LIMIT ? OFFSET ?
     """
     params.extend([limit, offset])
@@ -274,6 +347,109 @@ def update_listing_status(listing_id: str, is_favorite: Optional[bool] = None, i
         cursor.execute(f"UPDATE listings SET {', '.join(updates)} WHERE listing_id = ?", params)
         conn.commit()
     conn.close()
+
+# ----------------- User Interests & Profile Matching -----------------
+
+def get_interests(interest_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    if interest_type:
+        cursor.execute("SELECT * FROM user_interests WHERE type = ? ORDER BY instant_alert DESC, id DESC", (interest_type,))
+    else:
+        cursor.execute("SELECT * FROM user_interests ORDER BY type ASC, instant_alert DESC, id DESC")
+    rows = cursor.fetchall()
+    res = [dict(r) for r in rows]
+    conn.close()
+    return res
+
+def add_interest(keyword: str, instant_alert: bool = True, interest_type: str = "interested") -> int:
+    keyword = keyword.strip().lower()
+    if not keyword:
+        return 0
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = time.time()
+    cursor.execute("""
+    INSERT INTO user_interests (keyword, instant_alert, type, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(keyword) DO UPDATE SET
+        instant_alert = excluded.instant_alert,
+        type = excluded.type
+    """, (keyword, 1 if instant_alert else 0, interest_type, now))
+    item_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return item_id
+
+def delete_interest(interest_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_interests WHERE id = ?", (interest_id,))
+    conn.commit()
+    conn.close()
+
+def toggle_interest_instant_alert(interest_id: int) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT instant_alert FROM user_interests WHERE id = ?", (interest_id,))
+    row = cursor.fetchone()
+    new_state = False
+    if row:
+        new_state = not bool(row["instant_alert"])
+        cursor.execute("UPDATE user_interests SET instant_alert = ? WHERE id = ?", (1 if new_state else 0, interest_id))
+        conn.commit()
+    conn.close()
+    return new_state
+
+def extract_keywords_from_title(title: str) -> List[str]:
+    stopwords = {"free", "new", "good", "condition", "box", "of", "and", "the", "a", "an", "in", "for", "to", "with", "pickup", "pick", "up", "on", "nature", "strip", "available", "just", "listed"}
+    words = re.findall(r"[a-zA-Z]{3,}", title.lower())
+    return [w for w in words if w not in stopwords]
+
+def record_listing_interest(listing_id: str, status: str) -> Dict[str, Any]:
+    """status: 'interested', 'not_interested', 'none'"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT title FROM listings WHERE listing_id = ?", (listing_id,))
+    row = cursor.fetchone()
+    keywords_affected = []
+
+    if status == "interested":
+        cursor.execute("""
+        UPDATE listings
+        SET interest_status = 'interested', is_favorite = 1, is_dismissed = 0
+        WHERE listing_id = ?
+        """, (listing_id,))
+    elif status == "not_interested":
+        cursor.execute("""
+        UPDATE listings
+        SET interest_status = 'not_interested', is_favorite = 0, is_dismissed = 1
+        WHERE listing_id = ?
+        """, (listing_id,))
+    else:
+        cursor.execute("""
+        UPDATE listings
+        SET interest_status = 'none'
+        WHERE listing_id = ?
+        """, (listing_id,))
+
+    conn.commit()
+    conn.close()
+
+    if status == "interested" and row and row["title"]:
+        kws = extract_keywords_from_title(row["title"])
+        if kws:
+            primary_kw = " ".join(kws[:2]) if len(kws) >= 2 else kws[0]
+            add_interest(primary_kw, instant_alert=False, interest_type="interested")
+            keywords_affected.append(primary_kw)
+    elif status == "not_interested" and row and row["title"]:
+        kws = extract_keywords_from_title(row["title"])
+        if kws:
+            for kw in kws[:2]:
+                add_interest(kw, instant_alert=False, interest_type="excluded")
+                keywords_affected.append(kw)
+
+    return {"success": True, "status": status, "keywords": keywords_affected}
 
 def record_scan_log(filter_id: Optional[int], filter_name: str, status: str, count_found: int, count_new: int, error: str = ""):
     conn = get_connection()

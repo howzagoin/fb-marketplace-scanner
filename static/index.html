@@ -42,6 +42,9 @@
             <button class="nav-tab active" data-tab="listings">
                 📦 Listings <span id="listingsCountBadge" class="badge">0</span>
             </button>
+            <button class="nav-tab" data-tab="interests">
+                🎯 Product Interests <span id="interestsCountBadge" class="badge">0</span>
+            </button>
             <button class="nav-tab" data-tab="filters">
                 ⚙️ Search Rules & Filters <span id="rulesCountBadge" class="badge">0</span>
             </button>
@@ -64,8 +67,14 @@
                     <select id="filterSelectRule">
                         <option value="">All Search Rules</option>
                     </select>
+                    <select id="filterInterestStatus">
+                        <option value="all">All Feedback</option>
+                        <option value="interested">👍 Interested Only</option>
+                        <option value="none">Unrated</option>
+                        <option value="not_interested">👎 Disliked</option>
+                    </select>
                     <label class="checkbox-label">
-                        <input type="checkbox" id="checkOnlyFavorites"> ⭐ Starred Only
+                        <input type="checkbox" id="checkOnlyFavorites"> ⭐ Priority Only
                     </label>
                     <label class="checkbox-label">
                         <input type="checkbox" id="checkShowDismissed"> 🗑️ Show Dismissed
@@ -86,7 +95,57 @@
             </div>
         </main>
 
-        <!-- Tab 2: Search Rules View -->
+        <!-- Tab 2: Product Interests View -->
+        <main id="tab-interests" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Product Preferences & Priority Alerts</h2>
+                    <p class="subtitle">Teach the scanner what you want to find. Star ⭐ items to receive immediate alerts, or add items to auto-exclude.</p>
+                </div>
+            </div>
+
+            <div class="interests-grid">
+                <!-- Interested & Priority Section -->
+                <div class="interests-card">
+                    <div class="interests-card-header">
+                        <div>
+                            <h3>⭐ Interested Products & Instant Alerts</h3>
+                            <p class="card-desc">Items you want to see. Star ⭐ to receive an immediate priority alert as soon as one appears free.</p>
+                        </div>
+                    </div>
+                    <form id="formAddInterest" class="add-interest-form">
+                        <input type="text" id="inputNewInterest" placeholder="e.g. pool table, costume, coffee machine..." required>
+                        <label class="star-toggle-label" title="Immediate Priority Alert">
+                            <input type="checkbox" id="checkNewInterestAlert" checked>
+                            <span class="star-label">⭐ Immediate Alert</span>
+                        </label>
+                        <button type="submit" class="btn btn-primary">+ Add Item</button>
+                    </form>
+                    <div id="interestsList" class="interests-items-list">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+
+                <!-- Excluded / Disliked Section -->
+                <div class="interests-card">
+                    <div class="interests-card-header">
+                        <div>
+                            <h3>🚫 Excluded / Not Interested Keywords</h3>
+                            <p class="card-desc">Items to ignore (e.g. dog kennel, broken pallets). Any listing matching these will be auto-dismissed.</p>
+                        </div>
+                    </div>
+                    <form id="formAddExcluded" class="add-interest-form">
+                        <input type="text" id="inputNewExcluded" placeholder="e.g. kennel, dog crate, pallet, broken..." required>
+                        <button type="submit" class="btn btn-secondary">+ Exclude</button>
+                    </form>
+                    <div id="excludedList" class="interests-items-list">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Tab 3: Search Rules View -->
         <main id="tab-filters" class="tab-pane">
             <div class="section-header">
                 <div>

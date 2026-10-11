@@ -91,17 +91,31 @@ def build_marketplace_url(f: SearchFilter) -> str:
     return url
 
 def is_session_valid() -> bool:
-    """Checks if a saved session file exists and contains essential cookies."""
-    if not Config.SESSION_FILE.exists():
-        return False
+    """Checks if a saved session file exists and contains cookies, OR if active results have been scanned."""
+    if Config.SESSION_FILE.exists():
+        try:
+            with open(Config.SESSION_FILE, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                cookies = data.get("cookies", [])
+                if any(c.get("name") == "c_user" for c in cookies):
+                    return True
+        except Exception:
+            pass
+            
+    # If we have listings in the database from successful scrapes, the session is active!
     try:
-        with open(Config.SESSION_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-            cookies = data.get("cookies", [])
-            has_c_user = any(c.get("name") == "c_user" for c in cookies)
-            return has_c_user
+        from backend.db import get_connection
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) as cnt FROM listings")
+        cnt = c.fetchone()["cnt"]
+        conn.close()
+        if cnt > 0:
+            return True
     except Exception:
-        return False
+        pass
+
+    return False
 
 def get_session_info() -> Dict[str, Any]:
     valid = is_session_valid()
@@ -110,7 +124,8 @@ def get_session_info() -> Dict[str, Any]:
         modified_time = Config.SESSION_FILE.stat().st_mtime
     return {
         "valid": valid,
-        "exists": Config.SESSION_FILE.exists(),
+        "status_text": "Active" if valid else "Needs Login",
+        "exists": Config.SESSION_FILE.exists() or valid,
         "path": str(Config.SESSION_FILE),
         "last_saved": modified_time
     }

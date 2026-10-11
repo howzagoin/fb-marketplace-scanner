@@ -16,10 +16,19 @@ const listingsEmpty = document.getElementById('listingsEmpty');
 const listingsCountBadge = document.getElementById('listingsCountBadge');
 const rulesCountBadge = document.getElementById('rulesCountBadge');
 const filterSelectRule = document.getElementById('filterSelectRule');
+const filterInterestStatus = document.getElementById('filterInterestStatus');
 const listingSearchInput = document.getElementById('listingSearchInput');
 const checkOnlyFavorites = document.getElementById('checkOnlyFavorites');
 const checkShowDismissed = document.getElementById('checkShowDismissed');
 const btnRefreshListings = document.getElementById('btnRefreshListings');
+const interestsCountBadge = document.getElementById('interestsCountBadge');
+const formAddInterest = document.getElementById('formAddInterest');
+const inputNewInterest = document.getElementById('inputNewInterest');
+const checkNewInterestAlert = document.getElementById('checkNewInterestAlert');
+const interestsList = document.getElementById('interestsList');
+const formAddExcluded = document.getElementById('formAddExcluded');
+const inputNewExcluded = document.getElementById('inputNewExcluded');
+const excludedList = document.getElementById('excludedList');
 const rulesList = document.getElementById('rulesList');
 const btnNewRule = document.getElementById('btnNewRule');
 const ruleModal = document.getElementById('ruleModal');
@@ -66,9 +75,11 @@ function initTabs() {
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
             tab.classList.add('active');
             currentTab = tab.dataset.tab;
-            document.getElementById(`tab-${currentTab}`).classList.add('active');
+            const targetPane = document.getElementById(`tab-${currentTab}`);
+            if (targetPane) targetPane.classList.add('active');
 
             if (currentTab === 'listings') loadListings();
+            if (currentTab === 'interests') loadInterests();
             if (currentTab === 'filters') loadRules();
             if (currentTab === 'logs') loadLogs();
             if (currentTab === 'settings') loadSettings();
@@ -88,8 +99,12 @@ function initEventListeners() {
     btnRefreshListings.addEventListener('click', loadListings);
     listingSearchInput.addEventListener('input', debounce(loadListings, 300));
     filterSelectRule.addEventListener('change', loadListings);
+    if (filterInterestStatus) filterInterestStatus.addEventListener('change', loadListings);
     checkOnlyFavorites.addEventListener('change', loadListings);
     checkShowDismissed.addEventListener('change', loadListings);
+
+    if (formAddInterest) formAddInterest.addEventListener('submit', handleAddInterest);
+    if (formAddExcluded) formAddExcluded.addEventListener('submit', handleAddExcluded);
 
     btnNewRule.addEventListener('click', () => openRuleModal());
     modalClose.addEventListener('click', closeRuleModal);
@@ -104,6 +119,7 @@ function refreshAll() {
     checkScannerStatus();
     loadRules();
     loadListings();
+    loadInterests();
 }
 
 // Status Polling
@@ -132,7 +148,7 @@ async function checkScannerStatus() {
             // Update Session Pill
             if (s.session && s.session.valid) {
                 sessionPill.className = 'pill pill-success';
-                sessionStatusText.textContent = 'Facebook: Connected';
+                sessionStatusText.textContent = `Facebook: ${s.session.status_text || 'Active'}`;
             } else {
                 sessionPill.className = 'pill pill-warning';
                 sessionStatusText.textContent = 'Facebook: Needs Login';
@@ -237,10 +253,12 @@ async function loadListings() {
     const keyword = listingSearchInput.value.trim();
     const onlyFav = checkOnlyFavorites.checked ? '1' : '0';
     const showDis = checkShowDismissed.checked ? '1' : '0';
+    const interestStatus = filterInterestStatus ? filterInterestStatus.value : 'all';
 
     const params = new URLSearchParams({
         filter_id: ruleId,
         keyword: keyword,
+        interest_status: interestStatus,
         only_favorites: onlyFav,
         show_dismissed: showDis
     });
@@ -251,6 +269,11 @@ async function loadListings() {
         if (data.success) {
             renderListings(data.listings || []);
             listingsCountBadge.textContent = data.count || 0;
+            // Also if count > 0, we know the session is active
+            if (data.count > 0 && sessionStatusText.textContent.includes('Needs Login')) {
+                sessionPill.className = 'pill pill-success';
+                sessionStatusText.textContent = 'Facebook: Active';
+            }
         }
     } catch (e) {
         console.error('Error loading listings:', e);
@@ -280,16 +303,35 @@ function renderListings(items) {
             : `<div class="listing-img-placeholder">📦</div>`;
 
         const dateStr = item.first_seen ? new Date(item.first_seen * 1000).toLocaleDateString() : '';
+        const priorityBadge = item.instant_match
+            ? `<div class="badge-priority">⭐ Priority Match</div>`
+            : '';
+
+        const isInterested = item.interest_status === 'interested';
+        const isNotInterested = item.interest_status === 'not_interested';
 
         card.innerHTML = `
             <div class="listing-img-container">
                 ${imgHtml}
                 <div class="${priceClass}">${escapeHtml(item.price)}</div>
+                ${priorityBadge}
             </div>
             <div class="listing-content">
                 <h4 class="listing-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
                 <div class="listing-location">📍 ${escapeHtml(item.location || 'Local area')}</div>
                 <div class="listing-meta">Found: ${dateStr} &bull; Rule: ${escapeHtml(item.filter_name || 'General')}</div>
+                
+                <div class="interest-feedback-row">
+                    <button class="btn-interest btn-interested ${isInterested ? 'active' : ''}" 
+                            title="Interested in items like this (see more in future)" data-id="${item.listing_id}">
+                        👍 Interested
+                    </button>
+                    <button class="btn-interest btn-not-interested ${isNotInterested ? 'active' : ''}" 
+                            title="Not interested (auto-exclude similar items)" data-id="${item.listing_id}">
+                        👎 Not Interested
+                    </button>
+                </div>
+
                 <div class="listing-actions">
                     <div class="action-buttons">
                         <button class="btn-star ${item.is_favorite ? 'active' : ''}" title="Star Item" data-id="${item.listing_id}">⭐</button>
@@ -299,6 +341,32 @@ function renderListings(items) {
                 </div>
             </div>
         `;
+
+        // Interest feedback handlers
+        const btnInterested = card.querySelector('.btn-interested');
+        const btnNotInterested = card.querySelector('.btn-not-interested');
+
+        btnInterested.addEventListener('click', async () => {
+            const nextStatus = item.interest_status === 'interested' ? 'none' : 'interested';
+            await handleSetListingInterest(item.listing_id, nextStatus);
+            item.interest_status = nextStatus;
+            btnInterested.classList.toggle('active', nextStatus === 'interested');
+            btnNotInterested.classList.remove('active');
+            loadInterests();
+        });
+
+        btnNotInterested.addEventListener('click', async () => {
+            const nextStatus = item.interest_status === 'not_interested' ? 'none' : 'not_interested';
+            await handleSetListingInterest(item.listing_id, nextStatus);
+            item.interest_status = nextStatus;
+            btnNotInterested.classList.toggle('active', nextStatus === 'not_interested');
+            btnInterested.classList.remove('active');
+            if (nextStatus === 'not_interested') {
+                card.style.opacity = '0.3';
+                setTimeout(loadListings, 500);
+            }
+            loadInterests();
+        });
 
         // Card action listeners
         const starBtn = card.querySelector('.btn-star');
@@ -318,6 +386,22 @@ function renderListings(items) {
 
         listingsGrid.appendChild(card);
     });
+}
+
+async function handleSetListingInterest(listingId, status) {
+    try {
+        const res = await fetch(`/api/listings/${listingId}/interest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
+        const data = await res.json();
+        if (data.success && data.message) {
+            showToast(data.message, 'info');
+        }
+    } catch (e) {
+        showToast('Error saving feedback: ' + e.message, 'danger');
+    }
 }
 
 async function toggleFavorite(id, isFav) {
@@ -542,6 +626,166 @@ async function handleSaveSettings(e) {
         }
     } catch (e) {
         showToast('Error saving settings: ' + e.message, 'danger');
+    }
+}
+
+// ---------------- Product Interests Profile ----------------
+async function loadInterests() {
+    try {
+        const res = await fetch('/api/interests');
+        const data = await res.json();
+        if (data.success) {
+            const items = data.interests || [];
+            const interested = items.filter(x => x.type === 'interested');
+            const excluded = items.filter(x => x.type === 'excluded');
+
+            if (interestsCountBadge) {
+                interestsCountBadge.textContent = interested.length;
+            }
+
+            renderInterestsList(interested);
+            renderExcludedList(excluded);
+        }
+    } catch (e) {
+        console.error('Error loading interests:', e);
+    }
+}
+
+function renderInterestsList(items) {
+    if (!interestsList) return;
+    interestsList.innerHTML = '';
+    if (items.length === 0) {
+        interestsList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:16px; text-align:center;">No interested items saved yet. Add items above or click 👍 Interested on listings!</div>';
+        return;
+    }
+
+    items.forEach(item => {
+        const row = document.createElement('div');
+        const isStarred = Boolean(item.instant_alert);
+        row.className = `interest-item-row ${isStarred ? 'is-starred' : ''}`;
+
+        const starBtnText = isStarred ? '⭐ Instant Alert: ON' : '☆ Alert: Off';
+
+        row.innerHTML = `
+            <div class="interest-keyword">${escapeHtml(item.keyword)}</div>
+            <div class="interest-item-meta">
+                <button class="star-alert-btn ${isStarred ? 'starred' : 'unstarred'}" title="Toggle instant priority alert when this item appears">
+                    ${starBtnText}
+                </button>
+                <button class="btn-delete-interest" title="Remove item">&times;</button>
+            </div>
+        `;
+
+        row.querySelector('.star-alert-btn').addEventListener('click', async () => {
+            await handleToggleInstantAlert(item.id);
+        });
+
+        row.querySelector('.btn-delete-interest').addEventListener('click', async () => {
+            await handleDeleteInterest(item.id);
+        });
+
+        interestsList.appendChild(row);
+    });
+}
+
+function renderExcludedList(items) {
+    if (!excludedList) return;
+    excludedList.innerHTML = '';
+    if (items.length === 0) {
+        excludedList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; padding:16px; text-align:center;">No excluded keywords yet. Add keywords above or click 👎 Not Interested on listings.</div>';
+        return;
+    }
+
+    items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'interest-item-row';
+
+        row.innerHTML = `
+            <div class="interest-keyword" style="color:var(--text-secondary); text-decoration: line-through;">${escapeHtml(item.keyword)}</div>
+            <div class="interest-item-meta">
+                <button class="btn-delete-interest" title="Remove exclusion">&times;</button>
+            </div>
+        `;
+
+        row.querySelector('.btn-delete-interest').addEventListener('click', async () => {
+            await handleDeleteInterest(item.id);
+        });
+
+        excludedList.appendChild(row);
+    });
+}
+
+async function handleAddInterest(e) {
+    e.preventDefault();
+    const kw = inputNewInterest.value.trim();
+    if (!kw) return;
+    const instant = checkNewInterestAlert.checked;
+
+    try {
+        const res = await fetch('/api/interests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keyword: kw, instant_alert: instant, type: 'interested' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message || `Added '${kw}'!`, 'info');
+            inputNewInterest.value = '';
+            loadInterests();
+        } else {
+            showToast(data.error || 'Failed to add item', 'danger');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'danger');
+    }
+}
+
+async function handleAddExcluded(e) {
+    e.preventDefault();
+    const kw = inputNewExcluded.value.trim();
+    if (!kw) return;
+
+    try {
+        const res = await fetch('/api/interests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keyword: kw, instant_alert: false, type: 'excluded' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message || `Excluded '${kw}'!`, 'info');
+            inputNewExcluded.value = '';
+            loadInterests();
+        } else {
+            showToast(data.error || 'Failed to exclude item', 'danger');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'danger');
+    }
+}
+
+async function handleToggleInstantAlert(id) {
+    try {
+        const res = await fetch(`/api/interests/${id}/toggle-alert`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            loadInterests();
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'danger');
+    }
+}
+
+async function handleDeleteInterest(id) {
+    try {
+        const res = await fetch(`/api/interests/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Item removed.', 'info');
+            loadInterests();
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'danger');
     }
 }
 

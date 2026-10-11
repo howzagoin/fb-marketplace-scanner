@@ -77,7 +77,9 @@ class ListingItem:
         first_seen: Optional[float] = None,
         is_favorite: bool = False,
         is_dismissed: bool = False,
-        is_notified: bool = False
+        is_notified: bool = False,
+        interest_status: str = "none",
+        instant_match: bool = False
     ):
         self.listing_id = str(listing_id)
         self.title = title
@@ -91,6 +93,8 @@ class ListingItem:
         self.is_favorite = is_favorite
         self.is_dismissed = is_dismissed
         self.is_notified = is_notified
+        self.interest_status = interest_status
+        self.instant_match = instant_match
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -105,5 +109,7 @@ class ListingItem:
             "first_seen": self.first_seen,
             "is_favorite": bool(self.is_favorite),
             "is_dismissed": bool(self.is_dismissed),
-            "is_notified": bool(self.is_notified)
+            "is_notified": bool(self.is_notified),
+            "interest_status": self.interest_status,
+            "instant_match": bool(self.instant_match)
         }
