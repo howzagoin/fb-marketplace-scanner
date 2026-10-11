@@ -96,7 +96,10 @@ function initEventListeners() {
 
     btnScanNow.addEventListener('click', () => handleTriggerScan());
     if (btnEmptyScan) btnEmptyScan.addEventListener('click', () => handleTriggerScan());
-    btnRefreshListings.addEventListener('click', loadListings);
+    btnRefreshListings.addEventListener('click', async () => {
+        await loadListings();
+        showToast('Feed refreshed from local database', 'info');
+    });
     listingSearchInput.addEventListener('input', debounce(loadListings, 300));
     filterSelectRule.addEventListener('change', loadListings);
     if (filterInterestStatus) filterInterestStatus.addEventListener('change', loadListings);
