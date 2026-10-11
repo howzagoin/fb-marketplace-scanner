@@ -65,10 +65,14 @@ def get_approx_coordinates(postcode: str) -> Dict[str, float]:
 
 def build_marketplace_url(f: SearchFilter) -> str:
     city = get_city_slug_for_postcode(f.postcode)
-    params = []
     
-    if f.query:
-        params.append(f"query={quote(f.query)}")
+    # Facebook has a dedicated /free/ category endpoint that accurately displays local free items
+    if (f.max_price == 0 or (f.max_price is not None and f.max_price <= 0)) and (not f.query or not f.query.strip()):
+        return f"https://www.facebook.com/marketplace/{city}/free/"
+
+    params = []
+    if f.query and f.query.strip():
+        params.append(f"query={quote(f.query.strip())}")
     
     if f.max_price is not None:
         params.append(f"maxPrice={f.max_price}")
@@ -347,7 +351,11 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     clean_url = full_url.split("?")[0] if "?" in full_url else full_url
 
                     text_content = link_elem.inner_text().strip()
-                    lines = [line.strip() for line in text_content.split("\n") if line.strip()]
+                    raw_lines = [line.strip() for line in text_content.split("\n") if line.strip()]
+
+                    # Remove noise badges like 'Just listed', 'Price reduced', etc.
+                    badges = {"just listed", "price reduced", "ships to you", "free shipping", "top pick", "deal"}
+                    lines = [l for l in raw_lines if l.lower() not in badges]
 
                     img_elem = link_elem.query_selector("img")
                     img_url = img_elem.get_attribute("src") if img_elem else ""
@@ -355,25 +363,30 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     title = "Marketplace Item"
                     price_str = "Free" if (f.max_price == 0) else ""
                     location_str = f"Postcode {f.postcode}"
-
-                    if len(lines) >= 3:
-                        price_str = lines[0]
-                        title = lines[1]
-                        location_str = lines[2]
-                    elif len(lines) == 2:
-                        if any(char.isdigit() for char in lines[0]) or "free" in lines[0].lower():
-                            price_str = lines[0]
-                            title = lines[1]
-                        else:
-                            title = lines[0]
-                            price_str = lines[1]
-                    elif len(lines) == 1:
-                        title = lines[0]
-
                     price_num = 0.0
+
+                    # Find price line
+                    price_idx = -1
+                    for idx, l in enumerate(lines):
+                        if "free" in l.lower() or "$" in l or re.match(r"^\d+$", l):
+                            price_str = l
+                            price_idx = idx
+                            break
+
                     digits = re.findall(r"\d+", price_str.replace(",", ""))
                     if digits and "free" not in price_str.lower():
-                        price_num = float(digits[0])
+                        try:
+                            price_num = float(digits[0])
+                        except Exception:
+                            pass
+
+                    # Meaningful title and location from remaining lines
+                    rem = [l for idx, l in enumerate(lines) if idx != price_idx]
+                    if len(rem) >= 2:
+                        title = rem[0]
+                        location_str = rem[1]
+                    elif len(rem) == 1:
+                        title = rem[0]
 
                     item = ListingItem(
                         listing_id=listing_id,

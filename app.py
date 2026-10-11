@@ -200,4 +200,4 @@ def api_get_logs():
 
 if __name__ == "__main__":
     print(f"Starting Facebook Marketplace Scanner on http://{Config.HOST}:{Config.PORT}")
-    app.run(host=Config.HOST, port=Config.PORT, debug=True)
+    app.run(host=Config.HOST, port=Config.PORT, debug=False, use_reloader=False)
