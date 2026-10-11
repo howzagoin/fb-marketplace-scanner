@@ -143,6 +143,37 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Unique Condensed Products Section (Discovered Over Last 12 Months) -->
+            <div class="condensed-products-section" style="margin-top: 36px;">
+                <div class="section-header" style="flex-wrap: wrap; gap: 14px; margin-bottom: 16px;">
+                    <div>
+                        <h2>📦 Free Products Discovered (Last 12 Months)</h2>
+                        <p class="subtitle">
+                            Intelligently analyzed and consolidated down to unique product types (e.g. all couches, shelves, pianos grouped together). Set your preferences on any product below.
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="condensedSearchInput" placeholder="Filter products (e.g. couch, table)..." style="padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; min-width: 220px;" />
+                        <select id="filterCondensedStatus" style="padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px;">
+                            <option value="all">All Products</option>
+                            <option value="interested">👍 Interested Only</option>
+                            <option value="none">Unrated Only</option>
+                            <option value="not_interested">👎 Disliked Only</option>
+                        </select>
+                        <button id="btnRefreshCondensed" class="btn btn-secondary" title="Re-analyze products from listings">🔄 Re-Analyze</button>
+                    </div>
+                </div>
+
+                <div id="condensedProductsGrid" class="condensed-grid">
+                    <!-- Dynamically populated -->
+                </div>
+                <div id="condensedEmpty" class="empty-state hidden" style="padding: 30px;">
+                    <div class="empty-icon">📦</div>
+                    <h3>No Matching Products</h3>
+                    <p>No free products matched your search filter.</p>
+                </div>
+            </div>
         </main>
 
         <!-- Tab 3: Search Rules View -->

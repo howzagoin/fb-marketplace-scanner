@@ -11,6 +11,7 @@ from backend.db import (
 )
 from backend.scraper import get_session_info, capture_interactive_login, save_raw_cookies
 from backend.scheduler import scan_manager
+from backend.product_analyzer import get_condensed_products, set_product_category_interest
 from schema import SearchFilter
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -153,6 +154,22 @@ def api_delete_interest(interest_id):
 def api_toggle_interest_alert(interest_id):
     new_state = toggle_interest_instant_alert(interest_id)
     return jsonify({"success": True, "instant_alert": new_state})
+
+# ----------------- Condensed Products Catalog API -----------------
+
+@app.route("/api/products/condensed", methods=["GET"])
+def api_get_condensed_products():
+    days = int(request.args.get("days", 365))
+    prods = get_condensed_products(days=days)
+    return jsonify({"success": True, "products": prods, "count": len(prods)})
+
+@app.route("/api/products/<product_slug>/interest", methods=["POST"])
+def api_set_product_interest(product_slug):
+    data = request.json or {}
+    status = data.get("status", "none")
+    instant = bool(data.get("instant_alert", False))
+    res = set_product_category_interest(product_slug, status=status, instant_alert=instant)
+    return jsonify(res)
 
 # ----------------- Scanner & Session API -----------------
 

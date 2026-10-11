@@ -29,6 +29,11 @@ const interestsList = document.getElementById('interestsList');
 const formAddExcluded = document.getElementById('formAddExcluded');
 const inputNewExcluded = document.getElementById('inputNewExcluded');
 const excludedList = document.getElementById('excludedList');
+const condensedProductsGrid = document.getElementById('condensedProductsGrid');
+const condensedEmpty = document.getElementById('condensedEmpty');
+const condensedSearchInput = document.getElementById('condensedSearchInput');
+const filterCondensedStatus = document.getElementById('filterCondensedStatus');
+const btnRefreshCondensed = document.getElementById('btnRefreshCondensed');
 const rulesList = document.getElementById('rulesList');
 const btnNewRule = document.getElementById('btnNewRule');
 const ruleModal = document.getElementById('ruleModal');
@@ -79,7 +84,10 @@ function initTabs() {
             if (targetPane) targetPane.classList.add('active');
 
             if (currentTab === 'listings') loadListings();
-            if (currentTab === 'interests') loadInterests();
+            if (currentTab === 'interests') {
+                loadInterests();
+                loadCondensedProducts();
+            }
             if (currentTab === 'filters') loadRules();
             if (currentTab === 'logs') loadLogs();
             if (currentTab === 'settings') loadSettings();
@@ -109,6 +117,10 @@ function initEventListeners() {
     if (formAddInterest) formAddInterest.addEventListener('submit', handleAddInterest);
     if (formAddExcluded) formAddExcluded.addEventListener('submit', handleAddExcluded);
 
+    if (condensedSearchInput) condensedSearchInput.addEventListener('input', debounce(renderCondensedProducts, 200));
+    if (filterCondensedStatus) filterCondensedStatus.addEventListener('change', renderCondensedProducts);
+    if (btnRefreshCondensed) btnRefreshCondensed.addEventListener('click', loadCondensedProducts);
+
     btnNewRule.addEventListener('click', () => openRuleModal());
     modalClose.addEventListener('click', closeRuleModal);
     btnCancelRule.addEventListener('click', closeRuleModal);
@@ -123,6 +135,7 @@ function refreshAll() {
     loadRules();
     loadListings();
     loadInterests();
+    loadCondensedProducts();
 }
 
 // Status Polling
@@ -811,6 +824,156 @@ async function handleDeleteInterest(id) {
         }
     } catch (e) {
         showToast('Error: ' + e.message, 'danger');
+    }
+}
+
+// ---------------- Unique Condensed Products (Last 12 Months) ----------------
+let condensedProductsCache = [];
+
+async function loadCondensedProducts() {
+    if (!condensedProductsGrid) return;
+    try {
+        const res = await fetch('/api/products/condensed?days=365');
+        const data = await res.json();
+        if (data.success) {
+            condensedProductsCache = data.products || [];
+            renderCondensedProducts();
+        }
+    } catch (e) {
+        console.error('Error loading condensed products:', e);
+    }
+}
+
+function renderCondensedProducts() {
+    if (!condensedProductsGrid) return;
+    condensedProductsGrid.innerHTML = '';
+
+    const query = condensedSearchInput ? condensedSearchInput.value.toLowerCase().trim() : '';
+    const statusFilter = filterCondensedStatus ? filterCondensedStatus.value : 'all';
+
+    let filtered = condensedProductsCache.filter(p => {
+        if (query && !p.name.toLowerCase().includes(query) && !p.category.toLowerCase().includes(query)) {
+            return false;
+        }
+        if (statusFilter !== 'all') {
+            if (p.interest_status !== statusFilter) return false;
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        condensedProductsGrid.classList.add('hidden');
+        if (condensedEmpty) condensedEmpty.classList.remove('hidden');
+        return;
+    }
+
+    condensedProductsGrid.classList.remove('hidden');
+    if (condensedEmpty) condensedEmpty.classList.add('hidden');
+
+    filtered.forEach(p => {
+        const card = document.createElement('div');
+        card.className = `condensed-card status-${p.interest_status}`;
+
+        const isInterested = p.interest_status === 'interested';
+        const isDisliked = p.interest_status === 'not_interested';
+        const isStarred = Boolean(p.instant_alert);
+
+        const imgHtml = p.sample_image
+            ? `<img src="${p.sample_image}" alt="${escapeHtml(p.name)}" class="condensed-img" loading="lazy" />`
+            : `<div class="condensed-img" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">📦</div>`;
+
+        card.innerHTML = `
+            <div class="condensed-header">
+                ${imgHtml}
+                <div class="condensed-info">
+                    <div class="condensed-title" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
+                    <div class="condensed-meta-row">
+                        <span class="badge-count">${p.count} listed this year</span>
+                        <span class="badge-cat">${escapeHtml(p.category)}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="condensed-actions">
+                <div class="condensed-feedback-btns">
+                    <button class="btn-interest btn-interested ${isInterested ? 'active' : ''}" 
+                            title="Interested in this product type" data-slug="${p.slug}">
+                        👍 Interested
+                    </button>
+                    <button class="star-alert-btn ${isStarred ? 'starred' : 'unstarred'}" 
+                            title="Immediate Priority Alert ⭐" data-slug="${p.slug}">
+                        ${isStarred ? '⭐ Alert' : '☆ Alert'}
+                    </button>
+                    <button class="btn-interest btn-not-interested ${isDisliked ? 'active' : ''}" 
+                            title="Dislike / Exclude this product type" data-slug="${p.slug}">
+                        👎 Exclude
+                    </button>
+                </div>
+                <button class="btn-toggle-listings" data-slug="${p.slug}">
+                    👁️ Items (${p.listings.length})
+                </button>
+            </div>
+
+            <div class="condensed-drawer hidden" id="drawer-${p.slug}">
+                ${p.listings.map(item => `
+                    <div class="condensed-item-row">
+                        <span class="item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(item.location || 'Local')}</span>
+                        <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="item-link">View FB ↗</a>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        // Drawer toggle
+        const toggleBtn = card.querySelector('.btn-toggle-listings');
+        const drawer = card.querySelector(`#drawer-${p.slug}`);
+        toggleBtn.addEventListener('click', () => {
+            drawer.classList.toggle('hidden');
+            toggleBtn.textContent = drawer.classList.contains('hidden') ? `👁️ Items (${p.listings.length})` : `▲ Hide (${p.listings.length})`;
+        });
+
+        // Interested click
+        const btnInt = card.querySelector('.btn-interested');
+        btnInt.addEventListener('click', async () => {
+            const nextStatus = isInterested ? 'none' : 'interested';
+            await handleSetProductInterest(p.slug, nextStatus, isStarred);
+        });
+
+        // Star toggle
+        const btnStar = card.querySelector('.star-alert-btn');
+        btnStar.addEventListener('click', async () => {
+            const nextStar = !isStarred;
+            await handleSetProductInterest(p.slug, 'interested', nextStar);
+        });
+
+        // Exclude click
+        const btnEx = card.querySelector('.btn-not-interested');
+        btnEx.addEventListener('click', async () => {
+            const nextStatus = isDisliked ? 'none' : 'not_interested';
+            await handleSetProductInterest(p.slug, nextStatus, false);
+        });
+
+        condensedProductsGrid.appendChild(card);
+    });
+}
+
+async function handleSetProductInterest(slug, status, instantAlert) {
+    try {
+        const res = await fetch(`/api/products/${slug}/interest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: status, instant_alert: instantAlert })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Updated preference for '${data.name}'!`, 'info');
+            loadInterests();
+            loadCondensedProducts();
+            loadListings();
+        }
+    } catch (e) {
+        showToast('Error updating product preference: ' + e.message, 'danger');
     }
 }
 
