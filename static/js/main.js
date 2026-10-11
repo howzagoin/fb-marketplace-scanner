@@ -312,12 +312,18 @@ function renderListings(items) {
 
         card.innerHTML = `
             <div class="listing-img-container">
-                ${imgHtml}
+                <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="listing-img-link" title="Open listing on Facebook Marketplace">
+                    ${imgHtml}
+                </a>
                 <div class="${priceClass}">${escapeHtml(item.price)}</div>
                 ${priorityBadge}
             </div>
             <div class="listing-content">
-                <h4 class="listing-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
+                <h4 class="listing-title" title="${escapeHtml(item.title)}">
+                    <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="listing-title-link">
+                        ${escapeHtml(item.title)}
+                    </a>
+                </h4>
                 <div class="listing-location">📍 ${escapeHtml(item.location || 'Local area')}</div>
                 <div class="listing-meta">Found: ${dateStr} &bull; Rule: ${escapeHtml(item.filter_name || 'General')}</div>
                 
