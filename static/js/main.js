@@ -376,6 +376,7 @@ function renderListings(items) {
             btnInterested.classList.toggle('active', nextStatus === 'interested');
             btnNotInterested.classList.remove('active');
             loadInterests();
+            loadCondensedProducts();
         });
 
         btnNotInterested.addEventListener('click', async () => {
@@ -389,6 +390,7 @@ function renderListings(items) {
                 setTimeout(loadListings, 500);
             }
             loadInterests();
+            loadCondensedProducts();
         });
 
         // Card action listeners

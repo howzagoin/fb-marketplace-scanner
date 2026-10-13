@@ -11,7 +11,9 @@ from backend.db import (
 )
 from backend.scraper import get_session_info, capture_interactive_login, save_raw_cookies
 from backend.scheduler import scan_manager
-from backend.product_analyzer import get_condensed_products, set_product_category_interest
+from backend.product_analyzer import (
+    get_condensed_products, set_product_category_interest, reconcile_all_excluded_interests
+)
 from schema import SearchFilter
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -154,6 +156,11 @@ def api_delete_interest(interest_id):
 def api_toggle_interest_alert(interest_id):
     new_state = toggle_interest_instant_alert(interest_id)
     return jsonify({"success": True, "instant_alert": new_state})
+
+@app.route("/api/interests/reconcile", methods=["POST"])
+def api_reconcile_interests():
+    res = reconcile_all_excluded_interests()
+    return jsonify(res)
 
 # ----------------- Condensed Products Catalog API -----------------
 

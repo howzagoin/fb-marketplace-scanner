@@ -206,29 +206,47 @@ def save_listings(items: List[ListingItem]) -> int:
     # Load current interest and exclusion keywords
     cursor.execute("SELECT keyword, instant_alert, type FROM user_interests")
     interests = [dict(r) for r in cursor.fetchall()]
-    disliked_kws = [i["keyword"].lower() for i in interests if i["type"] == "disliked"]
+    excluded_items = [i for i in interests if i["type"] in ("excluded", "disliked")]
     interested_items = [i for i in interests if i["type"] == "interested"]
+    excluded_kws = [i["keyword"].lower() for i in excluded_items]
+
+    from backend.product_analyzer import classify_listing_title, is_seeking_offers
 
     for item in items:
         cursor.execute("SELECT listing_id, interest_status, is_favorite, is_dismissed, instant_match FROM listings WHERE listing_id = ?", (item.listing_id,))
         exists = cursor.fetchone()
         
-        # Calculate interest flags based on title
+        # Calculate interest flags based on title and intelligent classification
         title_lower = item.title.lower()
-        auto_dismiss = any(dk in title_lower for dk in disliked_kws) if disliked_kws else False
-        auto_interested = False
-        instant_match = False
+        classification = classify_listing_title(item.title)
+        c_name = classification["name"].lower()
+        c_slug = classification["slug"]
+        is_offer_seeker = is_seeking_offers(item.title)
 
-        for ii in interested_items:
-            if ii["keyword"] in title_lower:
-                auto_interested = True
-                if ii["instant_alert"]:
-                    instant_match = True
-                break
+        if is_offer_seeker:
+            auto_dismiss = True
+            auto_interested = False
+            instant_match = False
+        else:
+            auto_dismiss = any(
+                dk in title_lower or dk in c_name or dk == c_slug
+                for dk in excluded_kws
+            ) if excluded_kws else False
+
+            auto_interested = False
+            instant_match = False
+
+            for ii in interested_items:
+                ik = ii["keyword"].lower()
+                if ik in title_lower or ik in c_name or ik == c_slug:
+                    auto_interested = True
+                    if ii["instant_alert"]:
+                        instant_match = True
+                    break
 
         final_interest = "not_interested" if auto_dismiss else ("interested" if auto_interested else "none")
         final_dismissed = 1 if auto_dismiss else (1 if item.is_dismissed else 0)
-        final_fav = 1 if auto_interested else (1 if item.is_favorite else 0)
+        final_fav = 1 if (auto_interested and not is_offer_seeker) else (1 if item.is_favorite and not is_offer_seeker else 0)
 
         if not exists:
             cursor.execute("""
@@ -256,14 +274,20 @@ def save_listings(items: List[ListingItem]) -> int:
             ))
             new_count += 1
         else:
-            # Preserve user's manual interest rating if already set
+            # Preserve user's manual interest rating if already set, unless item is an offer seeker
             existing_interest = exists["interest_status"] or "none"
             existing_fav = exists["is_favorite"]
             existing_dis = exists["is_dismissed"]
 
-            use_interest = existing_interest if existing_interest != "none" else final_interest
-            use_fav = existing_fav if existing_interest != "none" else final_fav
-            use_dis = existing_dis if existing_interest != "none" else final_dismissed
+            if is_offer_seeker:
+                use_interest = "not_interested"
+                use_fav = 0
+                use_dis = 1
+                instant_match = False
+            else:
+                use_interest = existing_interest if existing_interest != "none" else final_interest
+                use_fav = existing_fav if existing_interest != "none" else final_fav
+                use_dis = existing_dis if existing_interest != "none" else final_dismissed
 
             cursor.execute("""
             UPDATE listings
@@ -363,20 +387,28 @@ def get_interests(interest_type: Optional[str] = None) -> List[Dict[str, Any]]:
     return res
 
 def add_interest(keyword: str, instant_alert: bool = True, interest_type: str = "interested") -> int:
-    keyword = keyword.strip().lower()
-    if not keyword:
+    kw_clean = keyword.strip()
+    if not kw_clean:
         return 0
     conn = get_connection()
     cursor = conn.cursor()
     now = time.time()
-    cursor.execute("""
-    INSERT INTO user_interests (keyword, instant_alert, type, created_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(keyword) DO UPDATE SET
-        instant_alert = excluded.instant_alert,
-        type = excluded.type
-    """, (keyword, 1 if instant_alert else 0, interest_type, now))
-    item_id = cursor.lastrowid
+    # Check if keyword already exists case-insensitively
+    cursor.execute("SELECT id FROM user_interests WHERE LOWER(keyword) = ?", (kw_clean.lower(),))
+    row = cursor.fetchone()
+    if row:
+        cursor.execute("""
+        UPDATE user_interests
+        SET keyword = ?, instant_alert = ?, type = ?
+        WHERE id = ?
+        """, (kw_clean, 1 if instant_alert else 0, interest_type, row["id"]))
+        item_id = row["id"]
+    else:
+        cursor.execute("""
+        INSERT INTO user_interests (keyword, instant_alert, type, created_at)
+        VALUES (?, ?, ?, ?)
+        """, (kw_clean, 1 if instant_alert else 0, interest_type, now))
+        item_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return item_id
@@ -401,18 +433,16 @@ def toggle_interest_instant_alert(interest_id: int) -> bool:
     conn.close()
     return new_state
 
-def extract_keywords_from_title(title: str) -> List[str]:
-    stopwords = {"free", "new", "good", "condition", "box", "of", "and", "the", "a", "an", "in", "for", "to", "with", "pickup", "pick", "up", "on", "nature", "strip", "available", "just", "listed"}
-    words = re.findall(r"[a-zA-Z]{3,}", title.lower())
-    return [w for w in words if w not in stopwords]
-
 def record_listing_interest(listing_id: str, status: str) -> Dict[str, Any]:
-    """status: 'interested', 'not_interested', 'none'"""
+    """
+    Sets interest status for a listing and updates user_interests using
+    intelligent product classification instead of raw split words.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT title FROM listings WHERE listing_id = ?", (listing_id,))
     row = cursor.fetchone()
-    keywords_affected = []
+    title = row["title"] if row else ""
 
     if status == "interested":
         cursor.execute("""
@@ -436,18 +466,40 @@ def record_listing_interest(listing_id: str, status: str) -> Dict[str, Any]:
     conn.commit()
     conn.close()
 
-    if status == "interested" and row and row["title"]:
-        kws = extract_keywords_from_title(row["title"])
-        if kws:
-            primary_kw = " ".join(kws[:2]) if len(kws) >= 2 else kws[0]
-            add_interest(primary_kw, instant_alert=False, interest_type="interested")
-            keywords_affected.append(primary_kw)
-    elif status == "not_interested" and row and row["title"]:
-        kws = extract_keywords_from_title(row["title"])
-        if kws:
-            for kw in kws[:2]:
-                add_interest(kw, instant_alert=False, interest_type="excluded")
-                keywords_affected.append(kw)
+    keywords_affected = []
+    if title:
+        from backend.product_analyzer import classify_listing_title
+        classification = classify_listing_title(title)
+        canonical_name = classification["name"]
+        slug = classification["slug"]
+
+        if status == "interested":
+            add_interest(canonical_name, instant_alert=False, interest_type="interested")
+            keywords_affected.append(canonical_name)
+        elif status == "not_interested":
+            add_interest(canonical_name, instant_alert=False, interest_type="excluded")
+            keywords_affected.append(canonical_name)
+
+            # Also dismiss other listings sharing this classified category
+            conn2 = get_connection()
+            c2 = conn2.cursor()
+            c2.execute("SELECT listing_id, title FROM listings WHERE listing_id != ?", (listing_id,))
+            for other in c2.fetchall():
+                other_cls = classify_listing_title(other["title"] or "")
+                if other_cls["slug"] == slug:
+                    c2.execute("""
+                    UPDATE listings
+                    SET interest_status = 'not_interested', is_favorite = 0, is_dismissed = 1
+                    WHERE listing_id = ?
+                    """, (other["listing_id"],))
+            conn2.commit()
+            conn2.close()
+        elif status == "none":
+            conn2 = get_connection()
+            c2 = conn2.cursor()
+            c2.execute("DELETE FROM user_interests WHERE LOWER(keyword) = ?", (canonical_name.lower(),))
+            conn2.commit()
+            conn2.close()
 
     return {"success": True, "status": status, "keywords": keywords_affected}
 
