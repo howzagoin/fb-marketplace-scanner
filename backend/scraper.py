@@ -403,6 +403,17 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     elif len(rem) == 1:
                         title = rem[0]
 
+                    # If title was mistakenly identified as a price (e.g. 'AU$180'), swap with location if location has actual item name
+                    title_is_price = bool(re.search(r"^(?:au)?\$\s*[\d,]+(?:\.\d+)?$", title.strip(), flags=re.I))
+                    if title_is_price:
+                        price_str = title.strip()
+                        p_digits = re.findall(r"\d+", price_str.replace(",", ""))
+                        if p_digits:
+                            price_num = float(p_digits[0])
+                        if location_str and not re.search(r"\b(?:VIC|NSW|QLD|WA|SA|TAS|ACT|NT|\d{4})\b", location_str):
+                            title = location_str
+                            location_str = f"Postcode {f.postcode}"
+
                     item = ListingItem(
                         listing_id=listing_id,
                         title=title,

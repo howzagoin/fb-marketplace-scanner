@@ -334,6 +334,29 @@ def is_seeking_offers(title: str) -> bool:
     t_lower = title.lower()
     return any(re.search(pat, t_lower, flags=re.IGNORECASE) for pat in OFFER_PATTERNS)
 
+def is_priced_item(title: str = "", price: str = "", price_num: float = 0.0) -> bool:
+    """
+    Detects if an item that appeared in a free search actually has a price attached.
+    Checks:
+    - price_num > 0
+    - price contains currency symbols or digits and isn't 'Free'
+    - title contains currency symbols (e.g., 'AU$180', '$50', '25$')
+    """
+    if price_num and price_num > 0:
+        return True
+
+    if price:
+        p_clean = price.strip().lower()
+        if p_clean != "free" and (re.search(r"\$\s*\d+", price) or re.search(r"\bau\$\s*\d+", price, flags=re.I)):
+            return True
+
+    if title:
+        # Detect currency amounts in title like 'AU$180', '$50', '$ 20'
+        if re.search(r"(?:au)?\$\s*[\d,]+(?:\.\d+)?", title, flags=re.I):
+            return True
+
+    return False
+
 def clean_title_noise(title: str) -> str:
     """Removes emojis, punctuation noise, prices, and common listing fillers."""
     t = re.sub(r"[\U00010000-\U0010ffff]", " ", title)  # remove high emojis
@@ -376,12 +399,12 @@ def extract_core_product_phrase(title: str) -> str:
         return f"{filtered[-2].capitalize()} {filtered[-1].capitalize()}"
     return filtered[-1].capitalize()
 
-def classify_listing_title(title: str) -> Dict[str, str]:
+def classify_listing_title(title: str, price: str = "", price_num: float = 0.0) -> Dict[str, str]:
     """Matches a listing title against the taxonomy or generates a clean fallback product entity."""
-    if is_seeking_offers(title):
+    if is_priced_item(title=title, price=price, price_num=price_num) or is_seeking_offers(title):
         return {
-            "slug": "offers-wanted",
-            "name": "Offers Wanted (Not Free)",
+            "slug": "not-free-priced",
+            "name": "Priced / Offers Wanted (Not Free)",
             "category": "Offers & Wanted"
         }
 
@@ -439,7 +462,7 @@ def get_condensed_products(days: int = 365) -> List[Dict[str, Any]]:
     for r in rows:
         item = dict(r)
         title = item["title"] or ""
-        classification = classify_listing_title(title)
+        classification = classify_listing_title(title, price=item.get("price") or "", price_num=item.get("price_num") or 0.0)
         slug = classification["slug"]
 
         if slug not in product_map:
@@ -615,18 +638,18 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
     c.execute("SELECT keyword, instant_alert, type FROM user_interests WHERE type = 'interested'")
     interested_items = [dict(r) for r in c.fetchall()]
 
-    c.execute("SELECT listing_id, title FROM listings")
+    c.execute("SELECT listing_id, title, price, price_num FROM listings")
     all_listings = c.fetchall()
     affected_excluded = 0
     affected_interested = 0
 
     for l in all_listings:
-        cls = classify_listing_title(l["title"] or "")
+        cls = classify_listing_title(l["title"] or "", price=l["price"] or "", price_num=l["price_num"] or 0.0)
         c_name = cls["name"]
         c_slug = cls["slug"]
         title_lower = (l["title"] or "").lower()
 
-        is_ex = (c_slug in excluded_slugs or c_name in excluded_names.values())
+        is_ex = (c_slug in excluded_slugs or c_name in excluded_names.values() or c_slug == "not-free-priced")
 
         is_in = False
         is_star = False

@@ -229,20 +229,21 @@ def save_listings(items: List[ListingItem]) -> int:
     for ek in excluded_kws:
         excluded_terms.extend(get_keyword_match_terms(ek))
 
-    from backend.product_analyzer import classify_listing_title, is_seeking_offers
+    from backend.product_analyzer import classify_listing_title, is_seeking_offers, is_priced_item
 
     for item in items:
         cursor.execute("SELECT listing_id, interest_status, is_favorite, is_dismissed, instant_match FROM listings WHERE listing_id = ?", (item.listing_id,))
         exists = cursor.fetchone()
         
-        # Calculate interest flags based on title, intelligent classification, and offer checks
+        # Calculate interest flags based on title, intelligent classification, and price/offer checks
         title_lower = item.title.lower()
-        classification = classify_listing_title(item.title)
+        classification = classify_listing_title(item.title, price=item.price, price_num=item.price_num or 0.0)
         c_name = classification["name"].lower()
         c_slug = classification["slug"]
         is_offer_seeker = is_seeking_offers(item.title)
+        has_price = is_priced_item(title=item.title, price=item.price, price_num=item.price_num or 0.0)
 
-        if is_offer_seeker:
+        if is_offer_seeker or has_price:
             auto_dismiss = True
             auto_interested = False
             instant_match = False
