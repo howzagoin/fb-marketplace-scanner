@@ -164,7 +164,7 @@ PRODUCT_TAXONOMY = [
         "slug": "kids-toys",
         "name": "Kids Toys & Play Sets",
         "category": "Toys & Games",
-        "pattern": r"\b(toy kitchen|kids\s*(?:free\s*)?kitchen|kids toys|box of toys|lego|action figures|dollhouse|dolls house|puzzles?|board games?|toy car|kids car|ride-on|nerf|playmat|pikler|pykler|play set|playpen)\b"
+        "pattern": r"\b(toy|toys|toy set|toy kitchen|kids\s*(?:free\s*)?kitchen|kids toys?|box of toys|lego|action figures?|dollhouse|dolls house|puzzles?|board games?|toy cars?|kids cars?|ride-on|nerf|playmat|pikler|pykler|play set|playpen)\b"
     },
     {
         "slug": "costume-dress-up",

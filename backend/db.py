@@ -196,6 +196,20 @@ def delete_filter(filter_id: int):
     conn.commit()
     conn.close()
 
+def get_keyword_match_terms(kw: str) -> List[str]:
+    """Expands a keyword or category phrase into exact match tokens and singular forms."""
+    cleaned = kw.lower().strip()
+    terms = [cleaned]
+    parts = [p.strip().lower() for p in re.split(r"[/&,]", cleaned)]
+    for p in parts:
+        if len(p) >= 3 and p not in terms:
+            terms.append(p)
+        if p.endswith("s") and len(p) > 4:
+            sing = p[:-1]
+            if sing not in terms:
+                terms.append(sing)
+    return terms
+
 def save_listings(items: List[ListingItem]) -> int:
     """Saves listings, applying user interest and exclusion rules, and returns count of newly inserted items."""
     conn = get_connection()
@@ -208,7 +222,12 @@ def save_listings(items: List[ListingItem]) -> int:
     interests = [dict(r) for r in cursor.fetchall()]
     excluded_items = [i for i in interests if i["type"] in ("excluded", "disliked")]
     interested_items = [i for i in interests if i["type"] == "interested"]
-    excluded_kws = [i["keyword"].lower() for i in excluded_items]
+    excluded_kws = {i["keyword"].lower() for i in excluded_items}
+
+    # Expand match terms
+    excluded_terms = []
+    for ek in excluded_kws:
+        excluded_terms.extend(get_keyword_match_terms(ek))
 
     from backend.product_analyzer import classify_listing_title, is_seeking_offers
 
@@ -216,7 +235,7 @@ def save_listings(items: List[ListingItem]) -> int:
         cursor.execute("SELECT listing_id, interest_status, is_favorite, is_dismissed, instant_match FROM listings WHERE listing_id = ?", (item.listing_id,))
         exists = cursor.fetchone()
         
-        # Calculate interest flags based on title and intelligent classification
+        # Calculate interest flags based on title, intelligent classification, and offer checks
         title_lower = item.title.lower()
         classification = classify_listing_title(item.title)
         c_name = classification["name"].lower()
@@ -228,21 +247,24 @@ def save_listings(items: List[ListingItem]) -> int:
             auto_interested = False
             instant_match = False
         else:
-            auto_dismiss = any(
-                dk in title_lower or dk in c_name or dk == c_slug
-                for dk in excluded_kws
-            ) if excluded_kws else False
+            auto_dismiss = (
+                c_name in excluded_kws or
+                c_slug in excluded_kws or
+                any(re.search(rf"\b{re.escape(term)}\b", title_lower) for term in excluded_terms)
+            )
 
             auto_interested = False
             instant_match = False
 
-            for ii in interested_items:
-                ik = ii["keyword"].lower()
-                if ik in title_lower or ik in c_name or ik == c_slug:
-                    auto_interested = True
-                    if ii["instant_alert"]:
-                        instant_match = True
-                    break
+            if not auto_dismiss:
+                for ii in interested_items:
+                    ik = ii["keyword"].lower()
+                    ik_terms = get_keyword_match_terms(ik)
+                    if (ik in c_name or ik == c_slug or any(re.search(rf"\b{re.escape(t)}\b", title_lower) for t in ik_terms)):
+                        auto_interested = True
+                        if ii["instant_alert"]:
+                            instant_match = True
+                        break
 
         final_interest = "not_interested" if auto_dismiss else ("interested" if auto_interested else "none")
         final_dismissed = 1 if auto_dismiss else (1 if item.is_dismissed else 0)
@@ -272,18 +294,23 @@ def save_listings(items: List[ListingItem]) -> int:
                 final_interest,
                 1 if instant_match else 0
             ))
-            new_count += 1
+            # Only count as new if it is NOT dismissed/excluded
+            if not auto_dismiss:
+                new_count += 1
         else:
-            # Preserve user's manual interest rating if already set, unless item is an offer seeker
             existing_interest = exists["interest_status"] or "none"
             existing_fav = exists["is_favorite"]
             existing_dis = exists["is_dismissed"]
 
-            if is_offer_seeker:
+            if auto_dismiss:
                 use_interest = "not_interested"
                 use_fav = 0
                 use_dis = 1
                 instant_match = False
+            elif auto_interested:
+                use_interest = "interested"
+                use_fav = 1
+                use_dis = 0
             else:
                 use_interest = existing_interest if existing_interest != "none" else final_interest
                 use_fav = existing_fav if existing_interest != "none" else final_fav
@@ -324,6 +351,7 @@ def get_listings(
 
     if not show_dismissed:
         conditions.append("l.is_dismissed = 0")
+        conditions.append("l.interest_status != 'not_interested'")
 
     if only_favorites:
         conditions.append("l.is_favorite = 1")
@@ -409,6 +437,30 @@ def add_interest(keyword: str, instant_alert: bool = True, interest_type: str = 
         VALUES (?, ?, ?, ?)
         """, (kw_clean, 1 if instant_alert else 0, interest_type, now))
         item_id = cursor.lastrowid
+
+    # If an exclusion is added, retroactively dismiss matching listings
+    if interest_type in ("excluded", "disliked"):
+        from backend.product_analyzer import classify_listing_title
+        match_terms = get_keyword_match_terms(kw_clean)
+        cursor.execute("SELECT listing_id, title FROM listings WHERE interest_status != 'interested'")
+        for row_l in cursor.fetchall():
+            l_id = row_l["listing_id"]
+            l_title = (row_l["title"] or "")
+            l_title_lower = l_title.lower()
+            cls = classify_listing_title(l_title)
+            c_name = cls["name"].lower()
+            c_slug = cls["slug"].lower()
+
+            if (
+                kw_clean.lower() in (c_name, c_slug)
+                or any(re.search(rf"\b{re.escape(term)}\b", l_title_lower) for term in match_terms)
+            ):
+                cursor.execute("""
+                UPDATE listings
+                SET interest_status = 'not_interested', is_favorite = 0, is_dismissed = 1, instant_match = 0
+                WHERE listing_id = ?
+                """, (l_id,))
+
     conn.commit()
     conn.close()
     return item_id

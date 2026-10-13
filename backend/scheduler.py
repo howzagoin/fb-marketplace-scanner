@@ -3,10 +3,10 @@ import threading
 import logging
 from typing import Dict, Any, Optional
 
-from schema import SearchFilter
+from schema import SearchFilter, ListingItem
 from backend.db import (
     get_filters, get_filter, save_listings, record_scan_log,
-    get_setting, set_setting
+    get_setting, set_setting, get_listings
 )
 from backend.scraper import scrape_marketplace_listings
 from backend.notifier import send_alert_email
@@ -97,8 +97,10 @@ class ScanManager:
             )
 
             if new_count > 0 and f.notify_email:
-                new_items = items[:new_count]
-                send_alert_email(f, new_items)
+                recent_items = get_listings(filter_id=f.id, limit=new_count)
+                alert_items = [ListingItem.from_dict(it) for it in recent_items if not it.get("is_dismissed") and it.get("interest_status") != "not_interested"]
+                if alert_items:
+                    send_alert_email(f, alert_items)
 
             self.status_message = f"Done! Found {len(items)} items ({new_count} new)."
             self.last_scan_time = time.time()
@@ -151,8 +153,10 @@ class ScanManager:
                     )
 
                     if new_count > 0 and f.notify_email:
-                        new_items = items[:new_count]
-                        send_alert_email(f, new_items)
+                        recent_items = get_listings(filter_id=f.id, limit=new_count)
+                        alert_items = [ListingItem.from_dict(it) for it in recent_items if not it.get("is_dismissed") and it.get("interest_status") != "not_interested"]
+                        if alert_items:
+                            send_alert_email(f, alert_items)
 
                 except Exception as ex:
                     logger.error(f"Error scanning {f.name}: {ex}")
