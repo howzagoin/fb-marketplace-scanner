@@ -627,6 +627,17 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
     conn = get_connection()
     c = conn.cursor()
 
+    # Also dynamically harvest categories from any listing the user marked dismissed / not_interested in the DB
+    c.execute("SELECT title, price, price_num FROM listings WHERE is_dismissed = 1 OR interest_status = 'not_interested'")
+    for row_dis in c.fetchall():
+        d_title = row_dis["title"] or ""
+        if d_title:
+            cls = classify_listing_title(d_title, price=row_dis["price"] or "", price_num=row_dis["price_num"] or 0.0)
+            d_slug = cls["slug"]
+            d_name = cls["name"]
+            excluded_slugs.add(d_slug)
+            excluded_names[d_slug] = d_name
+
     # Clear old fragmented excluded items
     c.execute("DELETE FROM user_interests WHERE type = 'excluded'")
 

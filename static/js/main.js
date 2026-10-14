@@ -119,7 +119,7 @@ function initEventListeners() {
 
     if (condensedSearchInput) condensedSearchInput.addEventListener('input', debounce(renderCondensedProducts, 200));
     if (filterCondensedStatus) filterCondensedStatus.addEventListener('change', renderCondensedProducts);
-    if (btnRefreshCondensed) btnRefreshCondensed.addEventListener('click', loadCondensedProducts);
+    if (btnRefreshCondensed) btnRefreshCondensed.addEventListener('click', handleReanalyzeAllProducts);
 
     btnNewRule.addEventListener('click', () => openRuleModal());
     modalClose.addEventListener('click', closeRuleModal);
@@ -831,6 +831,27 @@ async function handleDeleteInterest(id) {
 
 // ---------------- Unique Condensed Products (Last 12 Months) ----------------
 let condensedProductsCache = [];
+
+async function handleReanalyzeAllProducts() {
+    if (!condensedProductsGrid) return;
+    showToast('Re-analyzing all listings and reconciling exclusions...', 'info');
+    if (btnRefreshCondensed) btnRefreshCondensed.disabled = true;
+    try {
+        const reconcileRes = await fetch('/api/interests/reconcile', { method: 'POST' });
+        const reconcileData = await reconcileRes.json();
+        
+        await loadCondensedProducts();
+        await loadInterests();
+        await loadListings();
+        
+        const count = reconcileData.affected_listings || 0;
+        showToast(`Re-analysis complete! Updated ${count} excluded listings.`, 'info');
+    } catch (e) {
+        showToast('Error during re-analysis: ' + e.message, 'danger');
+    } finally {
+        if (btnRefreshCondensed) btnRefreshCondensed.disabled = false;
+    }
+}
 
 async function loadCondensedProducts() {
     if (!condensedProductsGrid) return;
