@@ -113,3 +113,22 @@ class ListingItem:
             "interest_status": self.interest_status,
             "instant_match": bool(self.instant_match)
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ListingItem":
+        return cls(
+            listing_id=str(data.get("listing_id", "")),
+            title=data.get("title", ""),
+            price=data.get("price", ""),
+            price_num=float(data.get("price_num", 0.0) or 0.0),
+            location=data.get("location", ""),
+            url=data.get("url", ""),
+            image_url=data.get("image_url", ""),
+            search_filter_id=data.get("search_filter_id"),
+            first_seen=data.get("first_seen"),
+            is_favorite=bool(data.get("is_favorite", False)),
+            is_dismissed=bool(data.get("is_dismissed", False)),
+            is_notified=bool(data.get("is_notified", False)),
+            interest_status=data.get("interest_status", "none"),
+            instant_match=bool(data.get("instant_match", False))
+        )
