@@ -269,7 +269,7 @@ def save_listings(items: List[ListingItem]) -> int:
 
         final_interest = "not_interested" if auto_dismiss else ("interested" if auto_interested else "none")
         final_dismissed = 1 if auto_dismiss else (1 if item.is_dismissed else 0)
-        final_fav = 1 if (auto_interested and not is_offer_seeker) else (1 if item.is_favorite and not is_offer_seeker else 0)
+        final_fav = 0 if auto_dismiss else (1 if item.is_favorite else 0)
 
         if not exists:
             cursor.execute("""
@@ -310,11 +310,11 @@ def save_listings(items: List[ListingItem]) -> int:
                 instant_match = False
             elif auto_interested:
                 use_interest = "interested"
-                use_fav = 1
+                use_fav = existing_fav
                 use_dis = 0
             else:
                 use_interest = existing_interest if existing_interest != "none" else final_interest
-                use_fav = existing_fav if existing_interest != "none" else final_fav
+                use_fav = existing_fav
                 use_dis = existing_dis if existing_interest != "none" else final_dismissed
 
             cursor.execute("""
@@ -500,7 +500,7 @@ def record_listing_interest(listing_id: str, status: str) -> Dict[str, Any]:
     if status == "interested":
         cursor.execute("""
         UPDATE listings
-        SET interest_status = 'interested', is_favorite = 1, is_dismissed = 0
+        SET interest_status = 'interested', is_dismissed = 0
         WHERE listing_id = ?
         """, (listing_id,))
     elif status == "not_interested":

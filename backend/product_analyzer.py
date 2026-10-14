@@ -84,7 +84,7 @@ PRODUCT_TAXONOMY = [
         "slug": "boats-vehicles",
         "name": "Boats, Trailers & Vehicles",
         "category": "Vehicles & Watercraft",
-        "pattern": r"\b(savage lancer|boat|canoe|kayak|trailer|caravan|dinghy|outboard motor)\b"
+        "pattern": r"\b(savage lancer|boat|canoe|kayak|trailer|caravan|dinghy|outboard motor|holden|commodore|ford|falcon|toyota|nissan|mitsubishi|sedan|wagon|ute|unicycle)\b"
     },
 
     # Music & Instruments
@@ -92,7 +92,7 @@ PRODUCT_TAXONOMY = [
         "slug": "piano-keyboard",
         "name": "Piano & Musical Instruments",
         "category": "Music & Hobbies",
-        "pattern": r"\b(piano|upright piano|grand piano|keyboard|synthesizer|electric piano|guitar|drums|amplifier|violin)\b"
+        "pattern": r"\b(piano|upright piano|grand piano|keyboard|synthesizer|electric piano|guitar|drums|amplifier|violin|electric organ|organ)\b"
     },
 
     # Appliances
@@ -107,6 +107,12 @@ PRODUCT_TAXONOMY = [
         "name": "Refrigerator & Freezer",
         "category": "Appliances",
         "pattern": r"\b(fridge|refrigerator|freezer|bar fridge|wine fridge)\b"
+    },
+    {
+        "slug": "vacuum-cleaner",
+        "name": "Vacuum Cleaner & Floor Care",
+        "category": "Appliances",
+        "pattern": r"\b(vacum|vacuum|vacuum cleaner|hoover|dyson|carpet cleaner|steam mop)\b"
     },
     {
         "slug": "microwave-oven",
@@ -126,13 +132,13 @@ PRODUCT_TAXONOMY = [
         "slug": "dog-kennel",
         "name": "Dog Kennel & Crate",
         "category": "Pet Supplies",
-        "pattern": r"\b(dog kennel|kennel|dog crate|dog bed|dog house|puppy pen|pet carrier)\b"
+        "pattern": r"\b(dog kennel|kennel|dog crate|dog bed|dog house|puppy pen|pet carrier|dog outfits?|dog coat|dog pool)\b"
     },
     {
         "slug": "cat-scratcher",
         "name": "Cat Tree & Scratcher",
         "category": "Pet Supplies",
-        "pattern": r"\b(cat scratcher|cat tree|scratching post|cat tower|cat bed|litter box|cat scratching)\b"
+        "pattern": r"\b(cat scratcher|cat tree|scratching post|cat tower|cat bed|litter box|cat scratching|cat items?)\b"
     },
     {
         "slug": "fish-tank",
@@ -164,7 +170,7 @@ PRODUCT_TAXONOMY = [
         "slug": "kids-toys",
         "name": "Kids Toys & Play Sets",
         "category": "Toys & Games",
-        "pattern": r"\b(toy|toys|toy set|toy kitchen|kids\s*(?:free\s*)?kitchen|kids toys?|box of toys|lego|action figures?|dollhouse|dolls house|puzzles?|board games?|toy cars?|kids cars?|ride-on|nerf|playmat|pikler|pykler|play set|playpen)\b"
+        "pattern": r"\b(toy|toys|toy set|toy kitchen|kids\s*(?:free\s*)?kitchen|kids toys?|box of toys|lego|action figures?|dollhouse|dolls house|puzzles?|board games?|toy cars?|kids cars?|ride-on|nerf|playmat|pikler|pykler|play set|playpen|cocomelon|peppa pig)\b"
     },
     {
         "slug": "costume-dress-up",
@@ -256,7 +262,7 @@ PRODUCT_TAXONOMY = [
         "slug": "collectibles-cards",
         "name": "Trading Cards, Pokemon & Collectibles",
         "category": "Collectibles",
-        "pattern": r"\b(pokemon|pokémon|trading cards|collector cards|collectible tins?|figurines?)\b"
+        "pattern": r"\b(pokemon|pokémon|trading cards?|collector cards?|collectible tins?|figurines?|panini|prizm|sports cards?|nba cards?)\b"
     },
     {
         "slug": "craft-fabric-sewing",
@@ -555,7 +561,7 @@ def set_product_category_interest(product_slug: str, status: str, instant_alert:
             if status == "interested":
                 c.execute("""
                 UPDATE listings
-                SET interest_status = 'interested', is_favorite = 1, is_dismissed = 0, instant_match = ?
+                SET interest_status = 'interested', is_dismissed = 0, instant_match = ?
                 WHERE listing_id = ?
                 """, (1 if instant_alert else 0, r["listing_id"]))
             elif status == "not_interested":
@@ -671,14 +677,14 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
         elif is_in:
             c.execute("""
             UPDATE listings
-            SET interest_status = 'interested', is_favorite = 1, is_dismissed = 0, instant_match = ?
+            SET interest_status = 'interested', is_dismissed = 0, instant_match = ?
             WHERE listing_id = ?
             """, (1 if is_star else 0, l["listing_id"]))
             affected_interested += 1
         else:
             c.execute("""
             UPDATE listings
-            SET interest_status = 'none', is_dismissed = 0
+            SET interest_status = 'none'
             WHERE listing_id = ?
             """, (l["listing_id"],))
 
