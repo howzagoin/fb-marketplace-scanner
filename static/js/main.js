@@ -470,7 +470,7 @@ function renderListings(items, totalActive = 0) {
             ? `<img src="${initialImgSrc}" referrerpolicy="no-referrer" alt="${escapeHtml(item.title)}" class="listing-img" loading="lazy" onerror="if(!this.src.includes('/api/image-proxy')){this.src='${proxyUrl}';}else{this.onerror=null;this.parentElement.innerHTML='<div class=\\'listing-img-placeholder\\'>&#x1F4E6;</div>';}" />`
             : `<div class="listing-img-placeholder">&#x1F4E6;</div>`;
 
-        const dateStr = item.first_seen ? new Date(item.first_seen * 1000).toLocaleDateString() : '';
+        const dateStr = formatDateDMY(item.first_seen);
         const priorityBadge = item.instant_match
             ? `<div class="badge-priority">⭐ Priority Match</div>`
             : '';
@@ -493,7 +493,7 @@ function renderListings(items, totalActive = 0) {
                     </a>
                 </h4>
                 <div class="listing-location">📍 ${escapeHtml(item.location || 'Local area')}</div>
-                <div class="listing-meta">Found: ${dateStr} &bull; Rule: ${escapeHtml(item.filter_name || 'General')}</div>
+                <div class="listing-meta" title="Discovered: ${formatDateTimeDMY(item.first_seen)}">Found: ${dateStr} &bull; Rule: ${escapeHtml(item.filter_name || 'General')}</div>
                 
                 <div class="interest-feedback-row">
                     <button class="btn-interest btn-interested ${isInterested ? 'active' : ''}" 
@@ -771,7 +771,7 @@ function renderLogs(logs) {
 
     logs.forEach(l => {
         const tr = document.createElement('tr');
-        const timeStr = l.timestamp ? new Date(l.timestamp * 1000).toLocaleString() : '';
+        const timeStr = formatDateTimeDMY(l.timestamp);
         let statusClass = 'pill-danger';
         if (l.status === 'Success') statusClass = 'pill-success';
         else if (l.status === 'Needs Login') statusClass = 'pill-warning';
@@ -1225,6 +1225,29 @@ function debounce(fn, wait) {
         clearTimeout(t);
         t = setTimeout(() => fn(...args), wait);
     };
+}
+
+function formatDateDMY(timestamp) {
+    if (!timestamp) return '';
+    const d = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+}
+
+function formatDateTimeDMY(timestamp) {
+    if (!timestamp) return '';
+    const d = typeof timestamp === 'number' ? new Date(timestamp * 1000) : new Date(timestamp);
+    if (isNaN(d.getTime())) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
 }
 
 function escapeHtml(str) {
