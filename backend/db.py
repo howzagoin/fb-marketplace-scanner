@@ -122,6 +122,12 @@ def init_db():
         cursor.execute("INSERT INTO app_settings (key, value) VALUES ('alert_email', ?)", (Config.DEFAULT_ALERT_EMAIL,))
         cursor.execute("INSERT INTO app_settings (key, value) VALUES ('auto_scan_enabled', '0')")
         cursor.execute("INSERT INTO app_settings (key, value) VALUES ('scan_interval_minutes', '60')")
+        cursor.execute("INSERT INTO app_settings (key, value) VALUES ('listing_retention_days', '14')")
+        conn.commit()
+
+    cursor.execute("SELECT COUNT(*) as cnt FROM app_settings WHERE key = 'listing_retention_days'")
+    if cursor.fetchone()["cnt"] == 0:
+        cursor.execute("INSERT INTO app_settings (key, value) VALUES ('listing_retention_days', '14')")
         conn.commit()
 
     conn.close()
@@ -229,21 +235,31 @@ def save_listings(items: List[ListingItem]) -> int:
     for ek in excluded_kws:
         excluded_terms.extend(get_keyword_match_terms(ek))
 
-    from backend.product_analyzer import classify_listing_title, is_seeking_offers, is_priced_item
+    from backend.product_analyzer import (
+        PRODUCT_TAXONOMY, classify_listing_title, is_seeking_offers,
+        is_priced_item, is_spam_or_wtb, is_generic_filler
+    )
+
+    excluded_patterns = []
+    for entry in PRODUCT_TAXONOMY:
+        if entry["slug"] in excluded_kws or entry["name"].lower() in excluded_kws:
+            excluded_patterns.append(re.compile(entry["pattern"], flags=re.IGNORECASE))
 
     for item in items:
         cursor.execute("SELECT listing_id, interest_status, is_favorite, is_dismissed, instant_match FROM listings WHERE listing_id = ?", (item.listing_id,))
         exists = cursor.fetchone()
         
         # Calculate interest flags based on title, intelligent classification, and price/offer checks
-        title_lower = item.title.lower()
+        title_lower = f" {item.title.lower()} "
         classification = classify_listing_title(item.title, price=item.price, price_num=item.price_num or 0.0)
         c_name = classification["name"].lower()
         c_slug = classification["slug"]
         is_offer_seeker = is_seeking_offers(item.title)
         has_price = is_priced_item(title=item.title, price=item.price, price_num=item.price_num or 0.0)
+        is_spam = is_spam_or_wtb(item.title)
+        is_filler = is_generic_filler(item.title)
 
-        if is_offer_seeker or has_price:
+        if is_offer_seeker or has_price or is_spam or is_filler:
             auto_dismiss = True
             auto_interested = False
             instant_match = False
@@ -251,6 +267,8 @@ def save_listings(items: List[ListingItem]) -> int:
             auto_dismiss = (
                 c_name in excluded_kws or
                 c_slug in excluded_kws or
+                c_slug in ("not-free-priced", "generic-filler-titles") or
+                any(pat.search(title_lower) for pat in excluded_patterns) or
                 any(re.search(rf"\b{re.escape(term)}\b", title_lower) for term in excluded_terms)
             )
 
@@ -337,11 +355,21 @@ def get_listings(
     interest_status: Optional[str] = None,
     show_dismissed: bool = False,
     only_favorites: bool = False,
+    include_expired: bool = False,
+    max_age_days: Optional[int] = None,
     limit: int = 100,
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     conn = get_connection()
     cursor = conn.cursor()
+
+    if max_age_days is None:
+        try:
+            cursor.execute("SELECT value FROM app_settings WHERE key = 'listing_retention_days'")
+            r = cursor.fetchone()
+            max_age_days = int(r["value"]) if r else 14
+        except Exception:
+            max_age_days = 14
 
     conditions = []
     params = []
@@ -350,16 +378,23 @@ def get_listings(
         conditions.append("l.search_filter_id = ?")
         params.append(filter_id)
 
-    if not show_dismissed:
-        conditions.append("l.is_dismissed = 0")
-        conditions.append("l.interest_status != 'not_interested'")
+    if interest_status == "not_interested":
+        conditions.append("l.interest_status = 'not_interested'")
+    else:
+        if not show_dismissed:
+            conditions.append("l.is_dismissed = 0")
+            conditions.append("l.interest_status != 'not_interested'")
+            if not include_expired and max_age_days > 0:
+                cutoff = time.time() - (max_age_days * 86400)
+                conditions.append("l.first_seen >= ?")
+                params.append(cutoff)
+
+        if interest_status and interest_status != "all":
+            conditions.append("l.interest_status = ?")
+            params.append(interest_status)
 
     if only_favorites:
         conditions.append("l.is_favorite = 1")
-
-    if interest_status and interest_status != "all":
-        conditions.append("l.interest_status = ?")
-        params.append(interest_status)
 
     if keyword and keyword.strip():
         conditions.append("(l.title LIKE ? OR l.location LIKE ?)")

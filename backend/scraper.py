@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 def get_browser_executable() -> Optional[str]:
     candidates = [
-        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
-        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
     ]
     for p in candidates:
         if os.path.exists(p):
@@ -91,7 +91,7 @@ def build_marketplace_url(f: SearchFilter) -> str:
     return url
 
 def is_session_valid() -> bool:
-    """Checks if a saved session file exists and contains cookies, OR if active results have been scanned."""
+    """Checks if a saved session file exists and contains essential cookies."""
     if Config.SESSION_FILE.exists():
         try:
             with open(Config.SESSION_FILE, "r", encoding="utf-8") as file:
@@ -101,20 +101,6 @@ def is_session_valid() -> bool:
                     return True
         except Exception:
             pass
-            
-    # If we have listings in the database from successful scrapes, the session is active!
-    try:
-        from backend.db import get_connection
-        conn = get_connection()
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) as cnt FROM listings")
-        cnt = c.fetchone()["cnt"]
-        conn.close()
-        if cnt > 0:
-            return True
-    except Exception:
-        pass
-
     return False
 
 def get_session_info() -> Dict[str, Any]:
@@ -193,6 +179,14 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
             continue
         if name == "c_user":
             has_c_user = True
+        same_site_raw = str(c.get("sameSite", "")).lower()
+        if "strict" in same_site_raw:
+            same_site = "Strict"
+        elif "lax" in same_site_raw:
+            same_site = "Lax"
+        else:
+            same_site = "None"
+
         formatted_cookies.append({
             "name": str(name),
             "value": str(val),
@@ -201,7 +195,7 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
             "expires": float(c.get("expires", time.time() + 31536000)),
             "httpOnly": bool(c.get("httpOnly", name in ("xs", "sb", "fr"))),
             "secure": bool(c.get("secure", True)),
-            "sameSite": c.get("sameSite", "None")
+            "sameSite": same_site
         })
 
     if not has_c_user:
@@ -218,7 +212,7 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
 
     return {"success": True, "message": f"Successfully imported {len(formatted_cookies)} cookies. Facebook session is active!"}
 
-def capture_interactive_login(timeout_seconds: int = 300) -> Dict[str, Any]:
+def capture_interactive_login(timeout_seconds: int = 600) -> Dict[str, Any]:
     """
     Opens a visible browser using Brave or Chrome with a persistent profile for user sign-in.
     Waits for authentication cookies (c_user) to be stored, then saves the storage state.
@@ -228,10 +222,14 @@ def capture_interactive_login(timeout_seconds: int = 300) -> Dict[str, Any]:
     user_data_dir = str(Config.DATA_DIR / "browser_profile")
     os.makedirs(user_data_dir, exist_ok=True)
 
+    is_headless = False
+    if sys.platform != "win32" and not os.environ.get("DISPLAY"):
+        is_headless = True
+
     with sync_playwright() as p:
         launch_kwargs = {
             "user_data_dir": user_data_dir,
-            "headless": False,
+            "headless": is_headless,
             "args": [
                 "--start-maximized",
                 "--disable-blink-features=AutomationControlled",
@@ -243,6 +241,7 @@ def capture_interactive_login(timeout_seconds: int = 300) -> Dict[str, Any]:
             launch_kwargs["executable_path"] = browser_exe
 
         try:
+            print(f"[+] Opening browser window for Facebook login (timeout: {timeout_seconds}s)...")
             context = p.chromium.launch_persistent_context(**launch_kwargs)
             page = context.pages[0] if context.pages else context.new_page()
 
@@ -252,21 +251,37 @@ def capture_interactive_login(timeout_seconds: int = 300) -> Dict[str, Any]:
                 });
             """)
 
-            page.goto("https://www.facebook.com/marketplace/", timeout=45000)
+            print("[+] Navigating to https://www.facebook.com/login/ ...")
+            try:
+                page.goto("https://www.facebook.com/login/", timeout=30000, wait_until="domcontentloaded")
+            except Exception as nav_e:
+                print(f"[*] Initial navigation: {nav_e} (continuing)")
 
+            print("[*] Please log into Facebook and complete 2FA in the opened browser window.")
+            print("[*] Monitoring for active session cookies...")
             start_time = time.time()
             authenticated = False
+            last_notice = 0
 
             while time.time() - start_time < timeout_seconds:
                 time.sleep(2)
+                elapsed = int(time.time() - start_time)
+                if elapsed - last_notice >= 15:
+                    last_notice = elapsed
+                    rem = int(timeout_seconds - elapsed)
+                    print(f"    Waiting for Facebook 2FA / login... ({rem}s remaining)")
+
                 try:
                     cookies = context.cookies()
                     if any(c.get("name") == "c_user" for c in cookies):
+                        print("[+] 'c_user' cookie detected! Finalizing session capture...")
+                        time.sleep(3)  # Allow browser to finalize all auth tokens (xs, fr, datr)
                         authenticated = True
                         break
-                except Exception:
-                    # User may have closed the page or browser
-                    break
+                except Exception as loop_e:
+                    if not context.pages:
+                        print("[!] Browser window closed by user.")
+                        break
 
             if authenticated:
                 context.storage_state(path=str(Config.SESSION_FILE))
@@ -342,13 +357,19 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
             page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(3000)
 
+            # Check if Facebook redirected to a login wall or checkpoint
+            current_url = page.url.lower()
+            if "login" in current_url or "checkpoint" in current_url or page.query_selector("input#email, input[name='email']"):
+                logger.warning(f"Facebook blocked request with login wall: {page.url}")
+                raise RuntimeError("Facebook session missing or expired. Redirected to login wall (authentication required).")
+
             # Scroll multiple times to trigger lazy-loaded listings
             for _ in range(max_scrolls):
                 page.evaluate("window.scrollBy(0, 1000);")
                 page.wait_for_timeout(1500)
 
             # Extract listing links
-            links = page.query_selector_all("a[href*='/marketplace/item/']")
+            links = page.query_selector_all("a[href*='/marketplace/item/'], a[href*='/item/']")
             
             for link_elem in links:
                 try:
@@ -373,7 +394,35 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     lines = [l for l in raw_lines if l.lower() not in badges]
 
                     img_elem = link_elem.query_selector("img")
-                    img_url = img_elem.get_attribute("src") if img_elem else ""
+                    if not img_elem:
+                        try:
+                            parent_handle = link_elem.evaluate_handle("el => el.closest('[data-testid], [class*=\"x9f619\"]')?.querySelector('img')")
+                            img_elem = parent_handle.as_element()
+                        except Exception:
+                            img_elem = None
+
+                    img_url = ""
+                    if img_elem:
+                        img_url = img_elem.get_attribute("src") or img_elem.get_attribute("data-src") or ""
+
+                    # Automatically save image to persistent local disk cache
+                    if img_url and img_url.startswith("http"):
+                        try:
+                            img_cache_dir = Config.DATA_DIR / "images"
+                            img_cache_dir.mkdir(parents=True, exist_ok=True)
+                            cached_file = img_cache_dir / f"{listing_id}.jpg"
+                            if not cached_file.exists():
+                                req = urllib.request.Request(img_url, headers={
+                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                                    "Referer": "https://www.facebook.com/"
+                                })
+                                with urllib.request.urlopen(req, timeout=4) as img_resp:
+                                    img_data = img_resp.read()
+                                    if len(img_data) > 500:
+                                        with open(cached_file, "wb") as f_img:
+                                            f_img.write(img_data)
+                        except Exception:
+                            pass
 
                     title = "Marketplace Item"
                     price_str = "Free" if (f.max_price == 0) else ""
@@ -437,8 +486,29 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
 
 if __name__ == "__main__":
     if "--login" in sys.argv:
-        print("Starting interactive Facebook login with real browser...")
-        res = capture_interactive_login(timeout_seconds=300)
+        print("\n========================================================")
+        print("   Starting Interactive Facebook Login Launcher...")
+        print("   A browser window will open shortly.")
+        print("   Log in with your Facebook account and complete 2FA.")
+        print("========================================================\n")
+        res = capture_interactive_login(timeout_seconds=600)
         print("Result:", res)
+        if res.get("success") and Config.SESSION_FILE.exists():
+            print("\n[+] Facebook session captured successfully!")
+            try:
+                import subprocess
+                ssh_key = os.path.expanduser("~/.ssh/OracleKey")
+                if os.path.exists(ssh_key):
+                    vps_dest = "ubuntu@152.69.184.192:/home/ubuntu/fb-marketplace-scanner/data/session/fb_session.json"
+                    print(f"[+] Syncing session file to VPS ({vps_dest})...")
+                    subprocess.run(["scp", "-i", ssh_key, str(Config.SESSION_FILE), vps_dest], check=True)
+                    print("[+] Restarting background scanner service on VPS...")
+                    subprocess.run(["ssh", "-i", ssh_key, "ubuntu@152.69.184.192", "sudo systemctl restart fb-marketplace.service"], check=True)
+                    print("\n========================================================")
+                    print(" SUCCESS! Facebook session is now ACTIVE on VPS!")
+                    print(" 24/7 background marketplace scanning is running.")
+                    print("========================================================\n")
+            except Exception as sync_err:
+                print(f"[!] Session saved locally, but error syncing to VPS: {sync_err}")
     else:
         print("Facebook Marketplace Scraper Module")

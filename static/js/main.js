@@ -43,11 +43,7 @@ const ruleForm = document.getElementById('ruleForm');
 const modalTitle = document.getElementById('modalTitle');
 const sessionModal = document.getElementById('sessionModal');
 const sessionModalClose = document.getElementById('sessionModalClose');
-const btnLaunchDesktopBrowser = document.getElementById('btnLaunchDesktopBrowser');
-const cookieForm = document.getElementById('cookieForm');
-const inputCUser = document.getElementById('inputCUser');
-const inputXs = document.getElementById('inputXs');
-const inputRawCookies = document.getElementById('inputRawCookies');
+const btnOpenFbTab = document.getElementById('btnOpenFbTab');
 const logsTableBody = document.getElementById('logsTableBody');
 const btnRefreshLogs = document.getElementById('btnRefreshLogs');
 const settingsForm = document.getElementById('settingsForm');
@@ -99,11 +95,20 @@ function initTabs() {
 function initEventListeners() {
     btnConnectFb.addEventListener('click', openSessionModal);
     sessionModalClose.addEventListener('click', closeSessionModal);
-    btnLaunchDesktopBrowser.addEventListener('click', handleLaunchDesktopBrowser);
-    cookieForm.addEventListener('submit', handleSaveCookies);
+    if (btnOpenFbTab) {
+        btnOpenFbTab.addEventListener('click', handleOpenFbTab);
+    }
 
     btnScanNow.addEventListener('click', () => handleTriggerScan());
     if (btnEmptyScan) btnEmptyScan.addEventListener('click', () => handleTriggerScan());
+    const btnEmptyReset = document.getElementById('btnEmptyReset');
+    if (btnEmptyReset) {
+        btnEmptyReset.addEventListener('click', () => {
+            if (filterInterestStatus) filterInterestStatus.value = 'all';
+            if (listingSearchInput) listingSearchInput.value = '';
+            loadListings();
+        });
+    }
     btnRefreshListings.addEventListener('click', async () => {
         await loadListings();
         showToast('Feed refreshed from local database', 'info');
@@ -111,8 +116,29 @@ function initEventListeners() {
     listingSearchInput.addEventListener('input', debounce(loadListings, 300));
     filterSelectRule.addEventListener('change', loadListings);
     if (filterInterestStatus) filterInterestStatus.addEventListener('change', loadListings);
+    const filterRetentionDays = document.getElementById('filterRetentionDays');
+    if (filterRetentionDays) {
+        filterRetentionDays.addEventListener('change', () => {
+            loadListings();
+            saveQuickRetention(filterRetentionDays.value);
+        });
+    }
     checkOnlyFavorites.addEventListener('change', loadListings);
     checkShowDismissed.addEventListener('change', loadListings);
+
+    const sliderRetention = document.getElementById('sliderRetentionDays');
+    const inputRetention = document.getElementById('inputRetentionDays');
+    const labelRetention = document.getElementById('retentionDaysLabel');
+    if (sliderRetention && inputRetention) {
+        sliderRetention.addEventListener('input', () => {
+            inputRetention.value = sliderRetention.value;
+            if (labelRetention) labelRetention.textContent = `${sliderRetention.value} Days`;
+        });
+        inputRetention.addEventListener('input', () => {
+            sliderRetention.value = inputRetention.value;
+            if (labelRetention) labelRetention.textContent = `${inputRetention.value} Days`;
+        });
+    }
 
     if (formAddInterest) formAddInterest.addEventListener('submit', handleAddInterest);
     if (formAddExcluded) formAddExcluded.addEventListener('submit', handleAddExcluded);
@@ -169,6 +195,41 @@ async function checkScannerStatus() {
                 sessionPill.className = 'pill pill-warning';
                 sessionStatusText.textContent = 'Facebook: Needs Login';
             }
+
+            // Update Main Session Banner
+            const banner = document.getElementById('mainSessionBanner');
+            const bIcon = document.getElementById('mainSessionIcon');
+            const bTitle = document.getElementById('mainSessionTitle');
+            const bDesc = document.getElementById('mainSessionDesc');
+            const bBtn = document.getElementById('btnBannerConnect');
+
+            if (banner) {
+                if (s.session && s.session.valid) {
+                    banner.className = 'session-status-banner banner-active';
+                    if (bIcon) bIcon.textContent = '✅';
+                    if (bTitle) {
+                        bTitle.style.color = '#22c55e';
+                        bTitle.textContent = 'Facebook Account: Connected & Active';
+                    }
+                    if (bDesc) bDesc.textContent = '24/7 background scanner is authenticated and searching for matching marketplace items.';
+                    if (bBtn) {
+                        bBtn.textContent = '⚙️ Manage Session';
+                        bBtn.className = 'btn btn-secondary btn-sm';
+                    }
+                } else {
+                    banner.className = 'session-status-banner banner-warning';
+                    if (bIcon) bIcon.textContent = '⚠️';
+                    if (bTitle) {
+                        bTitle.style.color = '#f59e0b';
+                        bTitle.textContent = 'Facebook Account: Not Connected (Login Required)';
+                    }
+                    if (bDesc) bDesc.textContent = 'Scanner cannot retrieve live listings without Facebook authentication. Connect your account to enable scanning.';
+                    if (bBtn) {
+                        bBtn.textContent = '🔑 Connect Facebook (2FA)';
+                        bBtn.className = 'btn btn-primary btn-sm';
+                    }
+                }
+            }
         }
     } catch (e) {
         console.error('Failed to poll scanner status:', e);
@@ -186,16 +247,18 @@ function closeSessionModal() {
 
 async function handleLaunchDesktopBrowser() {
     showToast('Launching desktop browser for sign-in...', 'info');
+    // Invoke Windows registered protocol handler to pop up Connect-Facebook.bat
+    window.location.href = 'fb-scanner://login';
     try {
         const res = await fetch('/api/session/login', { method: 'POST' });
         const data = await res.json();
         if (data.success) {
             showToast(data.message, 'info');
         } else {
-            showToast(data.error || 'Failed to start browser login', 'danger');
+            showToast(data.error || 'Opening browser on your desktop...', 'info');
         }
     } catch (e) {
-        showToast('Error connecting to backend: ' + e.message, 'danger');
+        showToast('Local launcher triggered. Please complete sign-in in the opened browser.', 'info');
     }
 }
 
@@ -240,9 +303,35 @@ async function handleSaveCookies(e) {
     }
 }
 
+let isScanRunning = false;
+let scanMonitorTimer = null;
+
+function setScanButtonState(running) {
+    isScanRunning = running;
+    if (btnScanNow) {
+        btnScanNow.disabled = running;
+        if (running) {
+            btnScanNow.innerHTML = `<span class="spinner-sm"></span> Scanning...`;
+        } else {
+            btnScanNow.innerHTML = `⚡ Scan Now`;
+        }
+    }
+    if (btnEmptyScan) {
+        btnEmptyScan.disabled = running;
+        btnEmptyScan.textContent = running ? 'Scanning in progress...' : '⚡ Scan Marketplace Now';
+    }
+}
+
 // Trigger Manual Scan
 async function handleTriggerScan(ruleId = null) {
-    showToast('Starting scan in background...', 'info');
+    if (isScanRunning) {
+        showToast('Scan already in progress. Please wait...', 'info');
+        return;
+    }
+
+    setScanButtonState(true);
+    showToast('Starting Facebook Marketplace scan...', 'info');
+
     try {
         const isValidId = (typeof ruleId === 'number' && !isNaN(ruleId)) || (typeof ruleId === 'string' && /^\d+$/.test(ruleId));
         const body = isValidId ? { filter_id: parseInt(ruleId) } : {};
@@ -252,14 +341,50 @@ async function handleTriggerScan(ruleId = null) {
             body: JSON.stringify(body)
         });
         const data = await res.json();
-        if (data.success) {
-            showToast(data.message, 'info');
-            checkScannerStatus();
-            setTimeout(loadListings, 4000);
-        } else {
+
+        if (!data.success) {
+            setScanButtonState(false);
             showToast(data.error || 'Failed to start scan', 'danger');
+            return;
         }
+
+        showToast('⚡ Live scan running on Facebook... Monitoring for items', 'info');
+        checkScannerStatus();
+
+        if (scanMonitorTimer) clearInterval(scanMonitorTimer);
+        let elapsed = 0;
+
+        scanMonitorTimer = setInterval(async () => {
+            elapsed += 2;
+            try {
+                const sRes = await fetch('/api/scanner/status');
+                const sData = await sRes.json();
+                if (sData.success && sData.status) {
+                    const st = sData.status;
+                    if (!st.is_scanning) {
+                        clearInterval(scanMonitorTimer);
+                        scanMonitorTimer = null;
+                        setScanButtonState(false);
+
+                        showToast(`✅ ${st.status_message || 'Scan completed successfully!'}`, 'success');
+                        await loadListings();
+                        await loadCondensedProducts();
+                        await loadRules();
+                        return;
+                    }
+                }
+            } catch (pollErr) {}
+
+            if (elapsed >= 90) {
+                clearInterval(scanMonitorTimer);
+                scanMonitorTimer = null;
+                setScanButtonState(false);
+                loadListings();
+            }
+        }, 2000);
+
     } catch (e) {
+        setScanButtonState(false);
         showToast('Error: ' + e.message, 'danger');
     }
 }
@@ -271,42 +396,64 @@ async function loadListings() {
     const onlyFav = checkOnlyFavorites.checked ? '1' : '0';
     const showDis = checkShowDismissed.checked ? '1' : '0';
     const interestStatus = filterInterestStatus ? filterInterestStatus.value : 'all';
+    const filterRetentionDays = document.getElementById('filterRetentionDays');
+    const retentionDays = filterRetentionDays ? filterRetentionDays.value : '7';
 
     const params = new URLSearchParams({
         filter_id: ruleId,
         keyword: keyword,
         interest_status: interestStatus,
         only_favorites: onlyFav,
-        show_dismissed: showDis
+        show_dismissed: showDis,
+        max_age_days: retentionDays
     });
 
     try {
         const res = await fetch(`/api/listings?${params.toString()}`);
         const data = await res.json();
         if (data.success) {
-            renderListings(data.listings || []);
+            renderListings(data.listings || [], data.total_active || 0);
             listingsCountBadge.textContent = data.count || 0;
-            // Also if count > 0, we know the session is active
-            if (data.count > 0 && sessionStatusText.textContent.includes('Needs Login')) {
-                sessionPill.className = 'pill pill-success';
-                sessionStatusText.textContent = 'Facebook: Active';
-            }
         }
     } catch (e) {
         console.error('Error loading listings:', e);
     }
 }
 
-function renderListings(items) {
+function renderListings(items, totalActive = 0) {
     listingsGrid.innerHTML = '';
+    const emptyMsg = document.getElementById('emptyStateMsg');
+    const emptyResetBtn = document.getElementById('btnEmptyReset');
+
     if (!items || items.length === 0) {
         listingsGrid.classList.add('hidden');
         listingsEmpty.classList.remove('hidden');
+
+        const isFiltered = (filterInterestStatus && filterInterestStatus.value !== 'all') || (listingSearchInput && listingSearchInput.value.trim().length > 0);
+
+        if (isFiltered) {
+            const filterName = filterInterestStatus ? filterInterestStatus.options[filterInterestStatus.selectedIndex]?.text : '';
+            if (emptyMsg) {
+                emptyMsg.textContent = `No listings found matching ${filterName || 'selected filter'}. (${totalActive} active listings are available in total).`;
+            }
+            if (emptyResetBtn) {
+                emptyResetBtn.textContent = `✨ Show All Active Listings (${totalActive} available)`;
+                emptyResetBtn.classList.remove('hidden');
+            }
+        } else {
+            if (emptyMsg) {
+                emptyMsg.textContent = 'Run a scan or adjust your search rules to discover Marketplace items.';
+            }
+            if (emptyResetBtn) {
+                emptyResetBtn.classList.add('hidden');
+            }
+        }
         return;
     }
 
     listingsEmpty.classList.add('hidden');
     listingsGrid.classList.remove('hidden');
+    if (emptyResetBtn) emptyResetBtn.classList.add('hidden');
 
     items.forEach(item => {
         const card = document.createElement('div');
@@ -315,9 +462,13 @@ function renderListings(items) {
         const isFree = item.price.toLowerCase().includes('free') || item.price_num === 0;
         const priceClass = isFree ? 'price-tag price-free' : 'price-tag';
 
-        const imgHtml = item.image_url
-            ? `<img src="${item.image_url}" alt="${escapeHtml(item.title)}" class="listing-img" loading="lazy" />`
-            : `<div class="listing-img-placeholder">📦</div>`;
+        const proxyUrl = `/api/image-proxy?id=${encodeURIComponent(item.listing_id || '')}&url=${encodeURIComponent(item.image_url || '')}`;
+        const isExpiredUrl = Boolean(item.image_url && item.image_url.match(/[?&]oe=([0-9a-fA-F]+)/) && parseInt(item.image_url.match(/[?&]oe=([0-9a-fA-F]+)/)[1], 16) < (Date.now() / 1000));
+        const initialImgSrc = isExpiredUrl ? proxyUrl : (item.image_url || proxyUrl);
+
+        const imgHtml = (item.image_url || item.listing_id)
+            ? `<img src="${initialImgSrc}" referrerpolicy="no-referrer" alt="${escapeHtml(item.title)}" class="listing-img" loading="lazy" onerror="if(!this.src.includes('/api/image-proxy')){this.src='${proxyUrl}';}else{this.onerror=null;this.parentElement.innerHTML='<div class=\\'listing-img-placeholder\\'>&#x1F4E6;</div>';}" />`
+            : `<div class="listing-img-placeholder">&#x1F4E6;</div>`;
 
         const dateStr = item.first_seen ? new Date(item.first_seen * 1000).toLocaleDateString() : '';
         const priorityBadge = item.instant_match
@@ -381,14 +532,22 @@ function renderListings(items) {
 
         btnNotInterested.addEventListener('click', async () => {
             const nextStatus = item.interest_status === 'not_interested' ? 'none' : 'not_interested';
+            if (nextStatus === 'not_interested' && (!filterInterestStatus || filterInterestStatus.value !== 'not_interested')) {
+                // Instantly remove card with smooth animation
+                card.style.transition = 'all 0.25s ease';
+                card.style.transform = 'scale(0.85)';
+                card.style.opacity = '0';
+                setTimeout(() => {
+                    card.remove();
+                    const badge = document.getElementById('listingsCountBadge');
+                    if (badge) {
+                        const cur = parseInt(badge.textContent) || 0;
+                        if (cur > 0) badge.textContent = cur - 1;
+                    }
+                }, 250);
+            }
             await handleSetListingInterest(item.listing_id, nextStatus);
             item.interest_status = nextStatus;
-            btnNotInterested.classList.toggle('active', nextStatus === 'not_interested');
-            btnInterested.classList.remove('active');
-            if (nextStatus === 'not_interested') {
-                card.style.opacity = '0.3';
-                setTimeout(loadListings, 500);
-            }
             loadInterests();
             loadCondensedProducts();
         });
@@ -405,8 +564,22 @@ function renderListings(items) {
         const disBtn = card.querySelector('.btn-dismiss');
         disBtn.addEventListener('click', async () => {
             const nextDis = !item.is_dismissed;
+            if (nextDis && !checkShowDismissed.checked) {
+                // Instantly remove dismissed item from feed
+                card.style.transition = 'all 0.25s ease';
+                card.style.transform = 'scale(0.85)';
+                card.style.opacity = '0';
+                setTimeout(() => {
+                    card.remove();
+                    const badge = document.getElementById('listingsCountBadge');
+                    if (badge) {
+                        const cur = parseInt(badge.textContent) || 0;
+                        if (cur > 0) badge.textContent = cur - 1;
+                    }
+                }, 250);
+            }
             await toggleDismiss(item.listing_id, nextDis);
-            loadListings();
+            item.is_dismissed = nextDis ? 1 : 0;
         });
 
         listingsGrid.appendChild(card);
@@ -599,7 +772,9 @@ function renderLogs(logs) {
     logs.forEach(l => {
         const tr = document.createElement('tr');
         const timeStr = l.timestamp ? new Date(l.timestamp * 1000).toLocaleString() : '';
-        const statusClass = l.status === 'Success' ? 'pill-success' : 'pill-danger';
+        let statusClass = 'pill-danger';
+        if (l.status === 'Success') statusClass = 'pill-success';
+        else if (l.status === 'Needs Login') statusClass = 'pill-warning';
 
         tr.innerHTML = `
             <td>${timeStr}</td>
@@ -607,7 +782,7 @@ function renderLogs(logs) {
             <td><span class="pill ${statusClass}">${escapeHtml(l.status)}</span></td>
             <td><strong>${l.count_found}</strong> items</td>
             <td><strong style="color:var(--success);">${l.count_new}</strong> new</td>
-            <td>${escapeHtml(l.error_message || 'Completed normally')}</td>
+            <td>${escapeHtml(l.error_message || (l.status === 'Success' ? 'Completed normally' : 'Error during scan'))}</td>
         `;
         logsTableBody.appendChild(tr);
     });
@@ -625,6 +800,19 @@ async function loadSettings() {
             const checkAuto = document.getElementById('checkAutoScan');
             checkAuto.checked = isAuto;
             document.getElementById('inputScanInterval').value = s.scan_interval_minutes || 60;
+
+            const retentionDays = s.listing_retention_days || 14;
+            const sliderRetention = document.getElementById('sliderRetentionDays');
+            const inputRetention = document.getElementById('inputRetentionDays');
+            const labelRetention = document.getElementById('retentionDaysLabel');
+            const filterRetention = document.getElementById('filterRetentionDays');
+            if (sliderRetention) sliderRetention.value = retentionDays;
+            if (inputRetention) inputRetention.value = retentionDays;
+            if (labelRetention) labelRetention.textContent = `${retentionDays} Days`;
+            if (filterRetention) {
+                const opt = Array.from(filterRetention.options).find(o => o.value === String(retentionDays));
+                if (opt) filterRetention.value = String(retentionDays);
+            }
 
             const schedPill = document.getElementById('scheduleStatusPill');
             if (schedPill) {
@@ -646,10 +834,14 @@ async function loadSettings() {
 
 async function handleSaveSettings(e) {
     e.preventDefault();
+    const inputRetention = document.getElementById('inputRetentionDays');
+    const retentionDays = inputRetention ? (parseInt(inputRetention.value) || 14) : 14;
+
     const payload = {
         alert_email: document.getElementById('inputAlertEmail').value.trim(),
         auto_scan_enabled: document.getElementById('checkAutoScan').checked,
-        scan_interval_minutes: parseInt(document.getElementById('inputScanInterval').value) || 60
+        scan_interval_minutes: parseInt(document.getElementById('inputScanInterval').value) || 60,
+        listing_retention_days: retentionDays
     };
 
     try {
@@ -661,11 +853,37 @@ async function handleSaveSettings(e) {
         const data = await res.json();
         if (data.success) {
             showToast('Settings saved successfully!', 'info');
+            const filterRetention = document.getElementById('filterRetentionDays');
+            if (filterRetention) {
+                const opt = Array.from(filterRetention.options).find(o => o.value === String(retentionDays));
+                if (opt) filterRetention.value = String(retentionDays);
+            }
+            loadListings();
         } else {
             showToast(data.error || 'Failed to save settings', 'danger');
         }
     } catch (e) {
         showToast('Error saving settings: ' + e.message, 'danger');
+    }
+}
+
+async function saveQuickRetention(days) {
+    try {
+        const d = parseInt(days) || 14;
+        await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ listing_retention_days: d })
+        });
+        const slider = document.getElementById('sliderRetentionDays');
+        const input = document.getElementById('inputRetentionDays');
+        const label = document.getElementById('retentionDaysLabel');
+        if (slider) slider.value = d;
+        if (input) input.value = d;
+        if (label) label.textContent = `${d} Days`;
+        showToast(`Listing retention set to ${d === 0 ? 'All (No Expiry)' : d + ' Days'}`, 'info');
+    } catch (e) {
+        console.error('Failed to save quick retention preference:', e);
     }
 }
 

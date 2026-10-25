@@ -40,7 +40,7 @@ PRODUCT_TAXONOMY = [
         "slug": "cabinet-wardrobe",
         "name": "Wardrobe / Cabinet / Cupboard",
         "category": "Furniture",
-        "pattern": r"\b(wardrobe|cabinet|cabinets|cupboard|sideboard|buffet|credenza|pantry|drawers|chest of drawers|tallboy|dresser|dressing table)\b"
+        "pattern": r"\b(wardrobe|cabinet|cabinets|cupboard|sideboard|side board|buffet|credenza|pantry|drawers|chest of drawers|tallboy|dresser|dressing table|vanity)\b"
     },
     {
         "slug": "bedside-tables",
@@ -52,7 +52,7 @@ PRODUCT_TAXONOMY = [
         "slug": "bed-mattress",
         "name": "Bed Frame & Mattress",
         "category": "Furniture",
-        "pattern": r"\b(bed frame|mattress|queen bed|double bed|single bed|king bed|king single|bunk bed|slats|headboard|bed base|cot and mattress)\b"
+        "pattern": r"\b(bed frame|mattress|queen bed|double bed|single bed|king bed|king single|bunk bed|slats|headboard|bed base|bedhead|bed head|ensemble|cot and mattress)\b"
     },
     {
         "slug": "furniture-general",
@@ -66,7 +66,7 @@ PRODUCT_TAXONOMY = [
         "slug": "gym-equipment",
         "name": "Gym & Fitness Equipment",
         "category": "Sports & Fitness",
-        "pattern": r"\b(treadmill|elliptical|exercise bike|weights|dumbbell|dumbbells|barbell|bench press|gym equipment|squat rack|kettlebell|rower|pilates)\b"
+        "pattern": r"\b(treadmill|elliptical|exercise bike|weights|dumbbell|dumbbells|barbell|bench press|gym equipment|squat rack|kettlebell|rower|pilates|walking pad|gym set|home gym)\b"
     },
     {
         "slug": "bicycle-scooter",
@@ -118,7 +118,7 @@ PRODUCT_TAXONOMY = [
         "slug": "microwave-oven",
         "name": "Microwave & Oven",
         "category": "Appliances",
-        "pattern": r"\b(microwave|convection oven|air fryer|toaster oven)\b"
+        "pattern": r"\b(microwave|convection oven|air fryer|toaster oven|oven|up right oven|upright oven|stove|cooktop)\b"
     },
     {
         "slug": "dishwasher",
@@ -132,7 +132,7 @@ PRODUCT_TAXONOMY = [
         "slug": "dog-kennel",
         "name": "Dog Kennel & Crate",
         "category": "Pet Supplies",
-        "pattern": r"\b(dog kennel|kennel|dog crate|dog bed|dog house|puppy pen|pet carrier|dog outfits?|dog coat|dog pool)\b"
+        "pattern": r"\b(dog kennel|kennel|dog crate|dog bed|dog house|puppy pen|pet carrier|dog outfits?|dog coat|dog pool|for your dog)\b"
     },
     {
         "slug": "cat-scratcher",
@@ -150,7 +150,7 @@ PRODUCT_TAXONOMY = [
         "slug": "pet-bowls-feeders",
         "name": "Pet Bowls, Feeders & Accessories",
         "category": "Pet Supplies",
-        "pattern": r"\b(slow feeder|dog bowl|cat bowl|pet bowl|pet dishes|water bowl|leash|pet collar|harness)\b"
+        "pattern": r"\b(slow feeder|dog bowl|cat bowl|pet bowl|pet dishes|water bowl|leash|pet collar|harness|pet items?)\b"
     },
 
     # Kids & Baby
@@ -158,25 +158,39 @@ PRODUCT_TAXONOMY = [
         "slug": "baby-cot",
         "name": "Baby Cot & Bassinet",
         "category": "Baby & Nursery",
-        "pattern": r"\b(cot|cots|crib|bassinet|cot mattress|change table|high chair)\b"
+        "pattern": r"\b(cot|cots|crib|bassinet|cot mattress|change table|high chair|baby bed|portable baby bed)\b"
     },
     {
         "slug": "pram-stroller",
         "name": "Pram & Stroller",
         "category": "Baby & Nursery",
-        "pattern": r"\b(pram|stroller|buggy|baby capsule|car seat)\b"
+        "pattern": r"\b(pram|stroller|buggy|baby capsule|car seat|car booster|booster seat|child seats?)\b"
+    },
+    {
+        "slug": "baby-kids-gear",
+        "name": "Baby & Kids Gear & Nursery",
+        "category": "Baby & Kids",
+        "pattern": r"\b(baby clothes|baby girl|baby boy|baby bath|nappy|nappies|change mat|nappy bin|cubby|cubby house|playpen|play kitchen|bouncinette|toddler)\b"
     },
     {
         "slug": "kids-toys",
         "name": "Kids Toys & Play Sets",
         "category": "Toys & Games",
-        "pattern": r"\b(toy|toys|toy set|toy kitchen|kids\s*(?:free\s*)?kitchen|kids toys?|box of toys|lego|action figures?|dollhouse|dolls house|puzzles?|board games?|toy cars?|kids cars?|ride-on|nerf|playmat|pikler|pykler|play set|playpen|cocomelon|peppa pig)\b"
+        "pattern": r"\b(toy|toys|toy set|toy kitchen|kids\s*(?:free\s*)?kitchen|kids toys?|box of toys|lego|action figures?|dollhouse|dolls house|puzzles?|board games?|toy cars?|kids cars?|ride-on|nerf|playmat|pikler|pykler|play set|playpen|cocomelon|peppa pig|playground)\b"
     },
     {
         "slug": "costume-dress-up",
         "name": "Costumes & Dress-Ups",
         "category": "Clothing & Costumes",
         "pattern": r"\b(costume|costumes|fancy dress|cosplay|halloween costume|dress up)\b"
+    },
+
+    # Clothing, Footwear & Apparel
+    {
+        "slug": "clothing-apparel",
+        "name": "Clothing, Shoes & Apparel",
+        "category": "Clothing & Accessories",
+        "pattern": r"\b(clothing|clothes|jacket|jackets|dress|dresses|saree|shoes|boots|sneakers|hat|hats|hoodie|hoodies|attires?|formal wear|shirt|shirts|pants|jeans|sweater|sweaters|coat|coats|t-shirt|tshirts|activewear|scrubs|knickers|socks|half saree)\b"
     },
 
     # Outdoor & Garden
@@ -190,19 +204,27 @@ PRODUCT_TAXONOMY = [
         "slug": "plants-trees",
         "name": "Plants, Pots & Trees",
         "category": "Outdoor & Garden",
-        "pattern": r"\b(plant|plants|guava tree|fruit tree|succulent|succulents|agave|cactus|indoor plant|fiddle leaf|monstera|garden pots|planter|cuttings|seedlings)\b"
+        "pattern": r"\b(plant|plants|guava tree|fruit tree|succulent|succulents|agave|cactus|indoor plant|fiddle leaf|monstera|garden pots|planter|cuttings|seedlings|yucca|aloe vera)\b"
     },
     {
         "slug": "bbq-outdoor-furniture",
         "name": "BBQ & Outdoor Furniture",
         "category": "Outdoor & Garden",
-        "pattern": r"\b(bbq|barbecue|outdoor setting|outdoor table|patio chairs|fire pit|sun lounger)\b"
+        "pattern": r"\b(bbq|barbecue|outdoor setting|outdoor table|patio chairs|fire pit|sun lounger|pergola|pool hut)\b"
     },
     {
         "slug": "lawnmower-tools",
         "name": "Lawnmowers & Garden Tools",
         "category": "Outdoor & Garden",
         "pattern": r"\b(lawnmower|lawn mower|whipper snipper|hedge trimmer|wheelbarrow|rake|shovel)\b"
+    },
+
+    # Sports, Fitness & Play
+    {
+        "slug": "sports-outdoor-play",
+        "name": "Sports Equipment & Outdoor Play",
+        "category": "Sports & Fitness",
+        "pattern": r"\b(skate ramp|skateboard|roller skate|rollerskate|basketball|netball|swings?|surfboard|surfboards|helmet|boxing)\b"
     },
 
     # Electronics & Media
@@ -213,10 +235,16 @@ PRODUCT_TAXONOMY = [
         "pattern": r"\b(tv|television|smart tv|computer monitor|lcd monitor|display)\b"
     },
     {
+        "slug": "audio-speakers",
+        "name": "Audio Equipment, Speakers & Players",
+        "category": "Electronics",
+        "pattern": r"\b(speaker|speakers|car door speakers|cassette|radio|disk player|disc rot|record player|soundbar|subwoofer|stereo|headphones?)\b"
+    },
+    {
         "slug": "printers-scanners",
         "name": "Printers & Scanners",
         "category": "Electronics",
-        "pattern": r"\b(printer|printers|scanner|photocopier)\b"
+        "pattern": r"\b(printer|printers|scanner|photocopier|modem|router)\b"
     },
 
     # Kitchenware & Cookware
@@ -230,7 +258,7 @@ PRODUCT_TAXONOMY = [
         "slug": "kitchen-dispensers-drinkware",
         "name": "Drinkware & Juice Dispensers",
         "category": "Kitchen & Dining",
-        "pattern": r"\b(juice dispenser|drink dispenser|water dispenser|dispenser|kettle|blender|toaster|glasses|mugs|dinner set)\b"
+        "pattern": r"\b(juice dispenser|drink dispenser|water dispenser|dispenser|kettle|blender|toaster|glasses|mugs|dinner set|dish rack|kitchen stuff|scoby|kombucha|pie maker|sodastream)\b"
     },
 
     # Books, Decor, Collectibles & Materials
@@ -238,37 +266,55 @@ PRODUCT_TAXONOMY = [
         "slug": "books-bibles",
         "name": "Books, Dictionaries & Bibles",
         "category": "Books & Media",
-        "pattern": r"\b(book|books|dictionary|dictionaries|bible|bibles|encyclopedia|novel|novels|textbook|textbooks|magazines)\b"
+        "pattern": r"\b(book|books|dictionary|dictionaries|bible|bibles|encyclopedia|novel|novels|textbook|textbooks|magazines|videos|vhs|cassette tapes?)\b"
     },
     {
         "slug": "posters-wall-art",
         "name": "Posters, Wall Art & Memorabilia",
         "category": "Home Decor & Art",
-        "pattern": r"\b(poster|posters|wall art|framed print|canvas art|memorabilia|laminated pictures|art print)\b"
+        "pattern": r"\b(poster|posters|wall art|framed print|canvas art|memorabilia|laminated pictures|art print|mirror|mirrors|welcome sign|flower box)\b"
     },
     {
         "slug": "hair-beauty",
-        "name": "Hair Extensions & Accessories",
+        "name": "Hair Extensions & Beauty",
         "category": "Beauty & Personal Care",
-        "pattern": r"\b(braiding hair|hair extensions?|wig|wigs|hair piece|scrunchies?|hair clips?)\b"
+        "pattern": r"\b(braiding hair|hair extensions?|wig|wigs|hair piece|scrunchies?|hair clips?|makeup|skincare|cosmetics)\b"
     },
     {
         "slug": "bricks-building",
         "name": "Bricks, Pavers & Building Materials",
         "category": "Building & Hardware",
-        "pattern": r"\b(brick|bricks|paver|pavers|tiles|timber|pallets|concrete|gravel|sand|plasterboard|scaffold)\b"
+        "pattern": r"\b(brick|bricks|paver|pavers|tiles|concrete|gravel|sand|plasterboard|scaffold|river stone|insulation|foam)\b"
+    },
+    {
+        "slug": "timber-firewood",
+        "name": "Firewood, Pallets & Timber",
+        "category": "Building & Hardware",
+        "pattern": r"\b(firewood|fire wood|pallet|pallets|timber|logs|kindling|wood box|floorboard|floorboards|planks?)\b"
+    },
+    {
+        "slug": "tools-hardware",
+        "name": "Tools, Hardware & Compressors",
+        "category": "Building & Hardware",
+        "pattern": r"\b(tool box|toolbox|tools|shed clean out|air compressor|compressor tank|drill|saw|wrench|ladder|workbench)\b"
+    },
+    {
+        "slug": "mobility-medical",
+        "name": "Mobility & Medical Aids",
+        "category": "Health & Medical",
+        "pattern": r"\b(mobility walker|walker|crutches|wheelchair|toilet chair|commode|shower chair)\b"
     },
     {
         "slug": "collectibles-cards",
-        "name": "Trading Cards, Pokemon & Collectibles",
+        "name": "Trading Cards, Ooshies & Collectibles",
         "category": "Collectibles",
-        "pattern": r"\b(pokemon|pokémon|trading cards?|collector cards?|collectible tins?|figurines?|panini|prizm|sports cards?|nba cards?)\b"
+        "pattern": r"\b(pokemon|pokémon|trading cards?|collector cards?|collectible tins?|figurines?|panini|prizm|sports cards?|nba cards?|ooshies?|moshi monsters?|coles minis?|wildlife swaps?|pop vinyl|swap|swaps|swapping)\b"
     },
     {
         "slug": "craft-fabric-sewing",
         "name": "Fabric, Craft & Sewing Supplies",
         "category": "Crafts & Hobbies",
-        "pattern": r"\b(fabric scraps?|fabric|yarn|wool|sewing|craft supplies|ribbon)\b"
+        "pattern": r"\b(fabric scraps?|fabric|yarn|wool|sewing|craft supplies|ribbon|art beads|diamond art|beads)\b"
     },
     {
         "slug": "party-supplies",
@@ -280,7 +326,7 @@ PRODUCT_TAXONOMY = [
         "slug": "air-fresheners",
         "name": "Air Fresheners & Household Cleaning",
         "category": "Household Supplies",
-        "pattern": r"\b(airfreshener|airfresheners|air freshener|air fresheners|cleaning products|detergent|diffuser)\b"
+        "pattern": r"\b(airfreshener|airfresheners|air freshener|air fresheners|cleaning products|detergent|diffuser|air purifier|ironing board)\b"
     },
     {
         "slug": "health-supplements",
@@ -292,7 +338,23 @@ PRODUCT_TAXONOMY = [
         "slug": "garage-moving-sales",
         "name": "Garage & Moving Sales",
         "category": "Garage Sales",
-        "pattern": r"\b(garage sale|moving sale|estate sale|yard sale)\b"
+        "pattern": r"\b(garage sale|moving sale|estate sale|yard sale|moving out|move out sale|moving boxed|moving boxes)\b"
+    },
+
+    # Commercial Ads, WTB & Spam
+    {
+        "slug": "spam-ads-wtb",
+        "name": "Wanted To Buy & Commercial Ads (Not Free)",
+        "category": "Offers & Wanted",
+        "pattern": r"\b(wtb|iso|in search of|wanted to buy|wanted:|order now|referral discount|referral code|services|hair services|makeup services|selling ram)\b"
+    },
+
+    # Generic Uninformative Titles
+    {
+        "slug": "generic-filler-titles",
+        "name": "Generic Uninformative Titles (Filler)",
+        "category": "Miscellaneous",
+        "pattern": r"^\s*(free|free items?|moving items|need to gone asap|read description|pending|bt100|urgent move out sale|stuff|household items|house hold items)\s*$"
     },
 
     # Verge / Hard Rubbish
@@ -300,7 +362,7 @@ PRODUCT_TAXONOMY = [
         "slug": "hard-rubbish-verge",
         "name": "Verge / Hard Rubbish Collections",
         "category": "Street Finds",
-        "pattern": r"\b(hard rubbish|nature strip|on verge|verge collection|kerbside|on the street)\b"
+        "pattern": r"\b(hard rubbish|nature strip|on verge|verge collection|kerbside|on the street|street cleanout|curb alert|curbside|verge)\b"
     }
 ]
 
@@ -405,13 +467,32 @@ def extract_core_product_phrase(title: str) -> str:
         return f"{filtered[-2].capitalize()} {filtered[-1].capitalize()}"
     return filtered[-1].capitalize()
 
+def is_spam_or_wtb(title: str) -> bool:
+    if not title:
+        return False
+    t_clean = f" {title.strip().lower()} "
+    return bool(re.search(r"\b(wtb|iso|in search of|wanted to buy|wanted:|order now|referral discount|referral code|services|hair services|makeup services|selling ram|hire|rental)\b", t_clean))
+
+def is_generic_filler(title: str) -> bool:
+    if not title:
+        return True
+    t_clean = title.strip().lower()
+    return bool(re.match(r"^(free|free items?|moving items|need to gone asap|read description|pending|bt100|urgent move out sale|stuff|household items|house hold items|\?+)$", t_clean))
+
 def classify_listing_title(title: str, price: str = "", price_num: float = 0.0) -> Dict[str, str]:
     """Matches a listing title against the taxonomy or generates a clean fallback product entity."""
-    if is_priced_item(title=title, price=price, price_num=price_num) or is_seeking_offers(title):
+    if is_priced_item(title=title, price=price, price_num=price_num) or is_seeking_offers(title) or is_spam_or_wtb(title):
         return {
             "slug": "not-free-priced",
-            "name": "Priced / Offers Wanted (Not Free)",
+            "name": "Priced / Offers / Ads (Not Free)",
             "category": "Offers & Wanted"
+        }
+
+    if is_generic_filler(title):
+        return {
+            "slug": "generic-filler-titles",
+            "name": "Generic Uninformative Titles (Filler)",
+            "category": "Miscellaneous"
         }
 
     t_lower = f" {title.lower()} "
@@ -529,34 +610,39 @@ def set_product_category_interest(product_slug: str, status: str, instant_alert:
     - 'not_interested': adds to excluded profile and dismisses matching listings.
     - 'none': removes from profile.
     """
-    # Find matching taxonomy entry or fallback slug
     target_name = product_slug.replace("-", " ").title()
+    target_pattern = None
     for entry in PRODUCT_TAXONOMY:
         if entry["slug"] == product_slug:
             target_name = entry["name"]
+            target_pattern = entry["pattern"]
             break
 
     # Manage user_interests table
     interests = get_interests()
-    existing = [i for i in interests if i["keyword"].lower() == target_name.lower()]
+    existing = [i for i in interests if i["keyword"].lower() in (target_name.lower(), product_slug.lower())]
     for item in existing:
         delete_interest(item["id"])
 
     if status == "interested":
         add_interest(target_name, instant_alert=instant_alert, interest_type="interested")
+        add_interest(product_slug, instant_alert=instant_alert, interest_type="interested")
     elif status == "not_interested":
         add_interest(target_name, instant_alert=False, interest_type="excluded")
+        add_interest(product_slug, instant_alert=False, interest_type="excluded")
 
-    # Update listings matching this slug in DB
+    # Update listings matching this slug or pattern in DB
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT listing_id, title FROM listings")
+    c.execute("SELECT listing_id, title, price, price_num FROM listings")
     all_rows = c.fetchall()
 
     affected_count = 0
     for r in all_rows:
-        cls = classify_listing_title(r["title"])
-        if cls["slug"] == product_slug:
+        t = r["title"] or ""
+        cls = classify_listing_title(t, price=r["price"] or "", price_num=r["price_num"] or 0.0)
+        matches = (cls["slug"] == product_slug or (target_pattern and re.search(target_pattern, f" {t.lower()} ")))
+        if matches:
             affected_count += 1
             if status == "interested":
                 c.execute("""
@@ -615,8 +701,18 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
         "free bricks"
     ]
 
+    conn = get_connection()
+    c = conn.cursor()
+
+    # Retrieve existing user-set interests so we DO NOT erase user preferences
+    c.execute("SELECT keyword, instant_alert, type FROM user_interests WHERE type = 'interested'")
+    interested_items = [dict(r) for r in c.fetchall()]
+    interested_names = {i["keyword"].lower() for i in interested_items}
+
     excluded_slugs = set()
     excluded_names = {}
+
+    # 1. Harvest from USER_DISMISSED_TITLES
     for title in USER_DISMISSED_TITLES:
         classification = classify_listing_title(title)
         slug = classification["slug"]
@@ -624,10 +720,7 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
         excluded_slugs.add(slug)
         excluded_names[slug] = name
 
-    conn = get_connection()
-    c = conn.cursor()
-
-    # Also dynamically harvest categories from any listing the user marked dismissed / not_interested in the DB
+    # 2. Harvest from any listing the user marked dismissed / not_interested in the DB
     c.execute("SELECT title, price, price_num FROM listings WHERE is_dismissed = 1 OR interest_status = 'not_interested'")
     for row_dis in c.fetchall():
         d_title = row_dis["title"] or ""
@@ -638,60 +731,97 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
             excluded_slugs.add(d_slug)
             excluded_names[d_slug] = d_name
 
-    # Clear old fragmented excluded items
+    # 3. Always include street rubbish, commercial spam, and generic filler
+    NUISANCE_SLUGS = [
+        "hard-rubbish-verge",
+        "spam-ads-wtb",
+        "generic-filler-titles",
+        "clothing-apparel",
+        "timber-firewood"
+    ]
+    for ns in NUISANCE_SLUGS:
+        for entry in PRODUCT_TAXONOMY:
+            if entry["slug"] == ns and entry["name"].lower() not in interested_names:
+                excluded_slugs.add(ns)
+                excluded_names[ns] = entry["name"]
+
+    # 4. Harvest any existing user exclusions
+    c.execute("SELECT keyword FROM user_interests WHERE type = 'excluded'")
+    for r_ex in c.fetchall():
+        k = r_ex["keyword"]
+        excluded_slugs.add(k.lower())
+        excluded_names[k.lower()] = k
+
+    # Clear and rewrite clean canonical merged excluded products
     c.execute("DELETE FROM user_interests WHERE type = 'excluded'")
 
-    # Insert clean canonical merged excluded products
     inserted_categories = []
+    seen_inserted = set()
     now = time.time()
-    for slug, prod_name in sorted(excluded_names.items(), key=lambda x: x[1]):
+    for slug, prod_name in sorted(excluded_names.items(), key=lambda x: str(x[1])):
+        # Don't exclude if the user explicitly added it as interested
+        if prod_name.lower() in interested_names or slug in interested_names:
+            continue
+        if prod_name.lower() in seen_inserted:
+            continue
+        seen_inserted.add(prod_name.lower())
         c.execute("""
-        INSERT INTO user_interests (keyword, instant_alert, type, created_at)
+        INSERT OR IGNORE INTO user_interests (keyword, instant_alert, type, created_at)
         VALUES (?, 0, 'excluded', ?)
         """, (prod_name, now))
         inserted_categories.append(prod_name)
 
-    # Re-evaluate all listings in database against the excluded and interested profiles
-    c.execute("SELECT keyword, instant_alert, type FROM user_interests WHERE type = 'interested'")
-    interested_items = [dict(r) for r in c.fetchall()]
+    # Compile regex patterns for all excluded taxonomy categories
+    excluded_patterns = []
+    for entry in PRODUCT_TAXONOMY:
+        if entry["slug"] in excluded_slugs or entry["name"] in excluded_names.values():
+            excluded_patterns.append(re.compile(entry["pattern"], flags=re.IGNORECASE))
 
+    # Re-evaluate ALL listings in the database
     c.execute("SELECT listing_id, title, price, price_num FROM listings")
     all_listings = c.fetchall()
     affected_excluded = 0
     affected_interested = 0
 
     for l in all_listings:
-        cls = classify_listing_title(l["title"] or "", price=l["price"] or "", price_num=l["price_num"] or 0.0)
+        t = l["title"] or ""
+        t_lower = f" {t.lower()} "
+        cls = classify_listing_title(t, price=l["price"] or "", price_num=l["price_num"] or 0.0)
         c_name = cls["name"]
         c_slug = cls["slug"]
-        title_lower = (l["title"] or "").lower()
 
-        is_ex = (c_slug in excluded_slugs or c_name in excluded_names.values() or c_slug == "not-free-priced")
+        is_ex = (
+            c_slug in excluded_slugs or
+            c_name in excluded_names.values() or
+            c_slug in ("not-free-priced", "generic-filler-titles") or
+            any(pat.search(t_lower) for pat in excluded_patterns)
+        )
 
         is_in = False
         is_star = False
         for ii in interested_items:
             ik = ii["keyword"].lower()
-            if ik in title_lower or ik in c_name.lower() or ik == c_slug:
+            if ik in t_lower or ik in c_name.lower() or ik == c_slug:
                 is_in = True
                 if ii.get("instant_alert"):
                     is_star = True
                 break
 
-        if is_ex:
-            c.execute("""
-            UPDATE listings
-            SET interest_status = 'not_interested', is_favorite = 0, is_dismissed = 1, instant_match = 0
-            WHERE listing_id = ?
-            """, (l["listing_id"],))
-            affected_excluded += 1
-        elif is_in:
+        # Priority: Interested matches are preserved
+        if is_in:
             c.execute("""
             UPDATE listings
             SET interest_status = 'interested', is_dismissed = 0, instant_match = ?
             WHERE listing_id = ?
             """, (1 if is_star else 0, l["listing_id"]))
             affected_interested += 1
+        elif is_ex:
+            c.execute("""
+            UPDATE listings
+            SET interest_status = 'not_interested', is_favorite = 0, is_dismissed = 1, instant_match = 0
+            WHERE listing_id = ?
+            """, (l["listing_id"],))
+            affected_excluded += 1
         else:
             c.execute("""
             UPDATE listings
@@ -707,6 +837,7 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
         "total_source_listings": len(USER_DISMISSED_TITLES),
         "excluded_categories_count": len(inserted_categories),
         "excluded_categories": inserted_categories,
-        "affected_listings": affected_excluded
+        "affected_listings": affected_excluded,
+        "affected_interested": affected_interested
     }
 

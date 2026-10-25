@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Login & Connection - Marketplace Scanner</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .login-card {
+            max-width: 620px;
+            margin: 40px auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 32px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .login-header h2 {
+            font-size: 1.5rem;
+            color: var(--text-primary);
+            margin-top: 10px;
+        }
+        .status-box {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 24px;
+        }
+        .method-divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 24px 0;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .method-divider::before, .method-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .method-divider span {
+            padding: 0 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-icon">🔍</span>
+                    <span class="logo-text">FB Marketplace <span class="accent">Scanner</span></span>
+                </div>
+            </div>
+            <div class="header-right">
+                <a href="/" class="btn btn-secondary">← Back to Scanner Dashboard</a>
+            </div>
+        </header>
+
+        <div class="login-card">
+            <div class="login-header">
+                <div style="font-size: 2.5rem;">🔑</div>
+                <h2>Connect Facebook Account</h2>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 6px;">
+                    Authenticate so the 24/7 background scanner can access local Marketplace listings.
+                </p>
+            </div>
+
+            <!-- Session Status Box -->
+            <div class="status-box">
+                <div>
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);">Current Session:</span>
+                    <strong id="sessionStateText" style="display: block; font-size: 1rem; color: var(--warning);">Checking Status...</strong>
+                </div>
+                <button id="btnCheckStatus" class="btn btn-secondary btn-sm" onclick="checkStatus()">🔄 Refresh Status</button>
+            </div>
+
+            <!-- Option 1: Instant Cookie Import -->
+            <div class="method-card">
+                <h4 style="color: var(--accent); margin-bottom: 8px; font-size: 1rem;">Option 1: Instant Cookie Import (100% Guaranteed)</h4>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 14px;">
+                    Log into Facebook in any browser on your device, copy your session cookies, and paste them here:
+                </p>
+                <form id="loginCookieForm" onsubmit="handleCookieSubmit(event)">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cUser">c_user (User ID)</label>
+                            <input type="text" id="cUser" placeholder="e.g. 1000889218...">
+                        </div>
+                        <div class="form-group">
+                            <label for="xs">xs (Session Token)</label>
+                            <input type="text" id="xs" placeholder="e.g. 21%3ABz...">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label for="rawCookies">Or Paste Raw Cookie Header / JSON Array</label>
+                        <input type="text" id="rawCookies" placeholder="c_user=...; xs=... or cookie export">
+                    </div>
+                    <button type="submit" id="btnSaveCookies" class="btn btn-primary" style="width: 100%; margin-top: 16px;">
+                        💾 Save & Activate Facebook Session
+                    </button>
+                </form>
+            </div>
+
+            <div class="method-divider">
+                <span>OR</span>
+            </div>
+
+            <!-- Option 2: Launch Real Desktop Browser -->
+            <div class="method-card">
+                <h4 style="color: var(--accent); margin-bottom: 8px; font-size: 1rem;">Option 2: Launch Interactive Browser</h4>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 14px;">
+                    Opens a browser session to complete interactive 2FA login.
+                </p>
+                <button id="btnLaunchBrowser" class="btn btn-secondary" style="width: 100%;" onclick="launchInteractive()">
+                    🚀 Start Interactive Browser Login
+                </button>
+            </div>
+
+            <div style="margin-top: 24px; text-align: center;">
+                <a href="/" class="btn btn-primary" style="display: inline-block; padding: 10px 24px;">
+                    Open Scanner Feed & Listings →
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script>
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerText = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        async function checkStatus() {
+            const txt = document.getElementById('sessionStateText');
+            try {
+                const res = await fetch('/api/session/status');
+                const data = await res.json();
+                if (data.session && data.session.has_session) {
+                    txt.style.color = '#22c55e';
+                    txt.innerText = `Active (Connected as User ${data.session.user_id || 'OK'})`;
+                } else {
+                    txt.style.color = '#ef4444';
+                    txt.innerText = 'Not Connected / Session Expired';
+                }
+            } catch (e) {
+                txt.style.color = '#f59e0b';
+                txt.innerText = 'Unable to reach scanner service';
+            }
+        }
+
+        async function handleCookieSubmit(e) {
+            e.preventDefault();
+            const cUser = document.getElementById('cUser').value.trim();
+            const xs = document.getElementById('xs').value.trim();
+            const raw = document.getElementById('rawCookies').value.trim();
+
+            let payload = {};
+            if (raw) {
+                payload = { raw };
+            } else if (cUser && xs) {
+                payload = { cookies: `c_user=${cUser}; xs=${xs}` };
+            } else {
+                showToast('Please enter either c_user + xs or paste raw cookies.', 'warning');
+                return;
+            }
+
+            const btn = document.getElementById('btnSaveCookies');
+            btn.disabled = true;
+            btn.innerText = 'Verifying & Saving...';
+
+            try {
+                const res = await fetch('/api/session/cookies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Facebook session activated successfully!', 'success');
+                    checkStatus();
+                } else {
+                    showToast(data.error || 'Failed to save cookies', 'danger');
+                }
+            } catch (err) {
+                showToast('Error connecting to scanner API', 'danger');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '💾 Save & Activate Facebook Session';
+            }
+        }
+
+        async function launchInteractive() {
+            const btn = document.getElementById('btnLaunchBrowser');
+            btn.disabled = true;
+            btn.innerText = 'Launching Browser...';
+            try {
+                const res = await fetch('/api/session/login', { method: 'POST' });
+                const data = await res.json();
+                showToast(data.message || 'Browser launched.', 'info');
+            } catch (err) {
+                showToast('Error launching interactive login.', 'danger');
+            } finally {
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerText = '🚀 Start Interactive Browser Login';
+                }, 3000);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', checkStatus);
+    </script>
+</body>
+</html>

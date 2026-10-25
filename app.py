@@ -1,6 +1,8 @@
 import os
+import time
 import threading
-from flask import Flask, jsonify, request, send_from_directory
+import urllib.request
+from flask import Flask, jsonify, request, send_from_directory, Response, send_file
 from backend.config import Config
 from backend.db import (
     init_db, get_filters, get_filter, save_filter, delete_filter,
@@ -30,6 +32,10 @@ scan_manager.start_background_scheduler()
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+@app.route("/login")
+def login():
+    return send_from_directory(app.static_folder, "login.html")
 
 @app.route("/styles.css")
 def serve_root_css():
@@ -93,6 +99,10 @@ def api_get_listings():
     interest_status = request.args.get("interest_status", "all")
     show_dismissed = request.args.get("show_dismissed", "0") in ("1", "true")
     only_favorites = request.args.get("only_favorites", "0") in ("1", "true")
+    include_expired = request.args.get("include_expired", "0") in ("1", "true")
+    
+    retention_setting = int(get_setting("listing_retention_days", "14"))
+    max_age_days = request.args.get("max_age_days", retention_setting, type=int)
     limit = request.args.get("limit", 100, type=int)
     offset = request.args.get("offset", 0, type=int)
 
@@ -102,10 +112,76 @@ def api_get_listings():
         interest_status=interest_status,
         show_dismissed=show_dismissed,
         only_favorites=only_favorites,
+        include_expired=include_expired,
+        max_age_days=max_age_days,
         limit=limit,
         offset=offset
     )
-    return jsonify({"success": True, "listings": items, "count": len(items)})
+
+    total_active = 0
+    try:
+        from backend.db import get_connection
+        conn = get_connection()
+        cursor = conn.cursor()
+        cutoff = time.time() - (max_age_days * 86400) if max_age_days > 0 else 0
+        cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE is_dismissed = 0 AND interest_status != 'not_interested' AND first_seen >= ?", (cutoff,))
+        row = cursor.fetchone()
+        if row:
+            total_active = row["cnt"]
+        conn.close()
+    except Exception:
+        pass
+
+    return jsonify({"success": True, "listings": items, "count": len(items), "total_active": total_active})
+
+@app.route("/api/image-proxy", methods=["GET"])
+def api_image_proxy():
+    image_url = request.args.get("url")
+    listing_id = request.args.get("id") or ""
+    placeholder_svg = b'''<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+        <rect width="300" height="300" fill="#1e293b"/>
+        <text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-size="44" fill="#64748b">&#x1F4E6;</text>
+        <text x="50%" y="64%" dominant-baseline="middle" text-anchor="middle" font-size="13" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="600" fill="#94a3b8">Marketplace Item</text>
+    </svg>'''
+
+    # 1. Check local persistent disk cache
+    cache_dir = Config.DATA_DIR / "images"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    if listing_id:
+        cached_file = cache_dir / f"{listing_id}.jpg"
+        if cached_file.exists() and cached_file.stat().st_size > 500:
+            return send_file(str(cached_file), mimetype="image/jpeg", max_age=2592000)
+
+    # 2. Download and save to disk if URL is available
+    if image_url and (image_url.startswith("http://") or image_url.startswith("https://")):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": "https://www.facebook.com/",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+        }
+        try:
+            req = urllib.request.Request(image_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+                if len(data) > 500 and listing_id:
+                    try:
+                        with open(cache_dir / f"{listing_id}.jpg", "wb") as f:
+                            f.write(data)
+                    except Exception:
+                        pass
+                return Response(data, mimetype=content_type, headers={
+                    "Cache-Control": "public, max-age=2592000",
+                    "Access-Control-Allow-Origin": "*"
+                })
+        except Exception:
+            pass
+
+    return Response(placeholder_svg, mimetype="image/svg+xml", headers={
+        "Cache-Control": "public, max-age=86400",
+        "Access-Control-Allow-Origin": "*"
+    })
 
 @app.route("/api/listings/<listing_id>/interest", methods=["POST"])
 def api_set_listing_interest(listing_id):
@@ -253,7 +329,8 @@ def api_get_settings():
         "settings": {
             "alert_email": get_setting("alert_email", Config.DEFAULT_ALERT_EMAIL),
             "auto_scan_enabled": get_setting("auto_scan_enabled", "1") == "1",
-            "scan_interval_minutes": int(get_setting("scan_interval_minutes", "60"))
+            "scan_interval_minutes": int(get_setting("scan_interval_minutes", "60")),
+            "listing_retention_days": int(get_setting("listing_retention_days", "14"))
         }
     })
 
@@ -266,6 +343,8 @@ def api_save_settings():
         set_setting("auto_scan_enabled", "1" if data["auto_scan_enabled"] else "0")
     if "scan_interval_minutes" in data:
         set_setting("scan_interval_minutes", str(data["scan_interval_minutes"]))
+    if "listing_retention_days" in data:
+        set_setting("listing_retention_days", str(int(data["listing_retention_days"])))
     return jsonify({"success": True, "message": "Settings updated"})
 
 @app.route("/api/logs", methods=["GET"])

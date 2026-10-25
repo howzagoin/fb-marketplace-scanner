@@ -98,7 +98,7 @@ class ScanManager:
 
             if new_count > 0 and f.notify_email:
                 recent_items = get_listings(filter_id=f.id, limit=new_count)
-                alert_items = [ListingItem.from_dict(it) for it in recent_items if not it.get("is_dismissed") and it.get("interest_status") != "not_interested"]
+                alert_items = [ListingItem.from_dict(it) for it in recent_items if it.get("interest_status") == "interested" and not it.get("is_dismissed")]
                 if alert_items:
                     send_alert_email(f, alert_items)
 
@@ -106,14 +106,16 @@ class ScanManager:
             self.last_scan_time = time.time()
         except Exception as e:
             logger.error(f"Scan error for filter {filter_id}: {e}")
-            self.status_message = f"Error: {str(e)}"
+            err_str = str(e)
+            status_lbl = "Needs Login" if ("login" in err_str.lower() or "session" in err_str.lower()) else "Error"
+            self.status_message = "Scan failed: Facebook login required." if status_lbl == "Needs Login" else f"Error: {err_str}"
             record_scan_log(
                 filter_id=filter_id,
                 filter_name=f_data.get("name", "Unknown") if f_data else "",
-                status="Error",
+                status=status_lbl,
                 count_found=0,
                 count_new=0,
-                error=str(e)
+                error=err_str
             )
         finally:
             self.is_running = False
@@ -154,20 +156,25 @@ class ScanManager:
 
                     if new_count > 0 and f.notify_email:
                         recent_items = get_listings(filter_id=f.id, limit=new_count)
-                        alert_items = [ListingItem.from_dict(it) for it in recent_items if not it.get("is_dismissed") and it.get("interest_status") != "not_interested"]
+                        alert_items = [ListingItem.from_dict(it) for it in recent_items if it.get("interest_status") == "interested" and not it.get("is_dismissed")]
                         if alert_items:
                             send_alert_email(f, alert_items)
 
                 except Exception as ex:
                     logger.error(f"Error scanning {f.name}: {ex}")
+                    err_str = str(ex)
+                    status_lbl = "Needs Login" if ("login" in err_str.lower() or "session" in err_str.lower()) else "Error"
                     record_scan_log(
                         filter_id=f.id,
                         filter_name=f.name,
-                        status="Error",
+                        status=status_lbl,
                         count_found=0,
                         count_new=0,
-                        error=str(ex)
+                        error=err_str
                     )
+                    if status_lbl == "Needs Login":
+                        self.status_message = "Scan stopped: Facebook session required. Connect your account to enable scanning."
+                        break
 
             self.status_message = f"Completed all scans. Found {total_found} listings ({total_new} new)."
             self.last_scan_time = time.time()
