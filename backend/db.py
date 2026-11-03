@@ -545,9 +545,11 @@ def record_listing_interest(listing_id: str, status: str) -> Dict[str, Any]:
     """
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT title FROM listings WHERE listing_id = ?", (listing_id,))
+    cursor.execute("SELECT title, photo_alts, description FROM listings WHERE listing_id = ?", (listing_id,))
     row = cursor.fetchone()
     title = row["title"] if row else ""
+    photo_alt = row["photo_alts"] if (row and "photo_alts" in row.keys()) else ""
+    description = row["description"] if (row and "description" in row.keys()) else ""
 
     if status == "interested":
         cursor.execute("""
@@ -574,7 +576,7 @@ def record_listing_interest(listing_id: str, status: str) -> Dict[str, Any]:
     keywords_affected = []
     if title:
         from backend.product_analyzer import classify_listing_title
-        classification = classify_listing_title(title)
+        classification = classify_listing_title(title, photo_alt=photo_alt or "", description=description or "")
         canonical_name = classification["name"]
         slug = classification["slug"]
 

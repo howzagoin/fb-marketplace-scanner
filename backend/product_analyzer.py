@@ -72,7 +72,7 @@ PRODUCT_TAXONOMY = [
         "slug": "bicycle-scooter",
         "name": "Bicycle & Scooter",
         "category": "Sports & Fitness",
-        "pattern": r"\b(bike|bicycle|mountain bike|road bike|kids bike|scooter|skateboard|rollerblades)\b"
+        "pattern": r"\b(bike|bicycle|bicycles|bikes|mountain bike|road bike|kids bike|bmx|ebike|e-bike|scooter|scooters|e-scooter|escooter|ninebot|segway|giant\s+tcr|tcr\s+advanced|tcr|specialized|cannondale|merida|trek\s+\w+|skateboard|rollerblades)\b"
     },
     {
         "slug": "pool-table",
@@ -232,7 +232,7 @@ PRODUCT_TAXONOMY = [
         "slug": "tv-monitor",
         "name": "Television & Monitor",
         "category": "Electronics",
-        "pattern": r"\b(tv|television|smart tv|computer monitor|lcd monitor|display)\b"
+        "pattern": r"\b(tv|tvs|television|televisions|smart tv|sonic tv|phillips?\s+tv|philips\s+tv|computer monitor|lcd monitor|display|oled|qled|bravia)\b"
     },
     {
         "slug": "audio-speakers",
@@ -244,7 +244,13 @@ PRODUCT_TAXONOMY = [
         "slug": "printers-scanners",
         "name": "Printers & Scanners",
         "category": "Electronics",
-        "pattern": r"\b(printer|printers|scanner|photocopier|modem|router)\b"
+        "pattern": r"\b(printer|printers|scanner|scanners|photocopier|officejet|office\s*jet|laserjet|laser\s*jet|deskjet|desk\s*jet|inkjet|ink\s*jet|ecotank|pixma|stylus|mfc[-\s]?\d+|hp\s+office\s*jet)\b"
+    },
+    {
+        "slug": "lighting-lamps",
+        "name": "Lighting, Lamps & Globes",
+        "category": "Home Decor & Lighting",
+        "pattern": r"\b(lamp|lamps|lighting|light\s+fitting|light\s+shade|chandelier|desk\s+lamp|floor\s+lamp|light\s+globes?|globes?\s+all|light\s+bulbs?|bulbs?|downlight|downlights)\b"
     },
 
     # Kitchenware & Cookware
@@ -372,7 +378,11 @@ DESCRIPTOR_ADJECTIVES = {
     "large", "big", "huge", "heavy", "mini", "assorted", "brand", "new", "used",
     "old", "rustic", "solid", "beautiful", "luxury", "designer", "heavy", "duty",
     "clean", "nice", "little", "white", "black", "red", "blue", "green", "grey", "gray",
-    "free", "urgent", "pickup", "today", "moving", "must", "good", "condition", "richmond"
+    "free", "urgent", "pickup", "today", "moving", "must", "good", "great", "condition", "richmond",
+    "all", "take", "inside", "want", "like", "you", "pro", "stuff", "item", "items",
+    "box", "boxes", "lot", "lots", "freebie", "freebies", "giveaway", "grab", "please",
+    "asap", "need", "gone", "pick", "drop", "available", "read", "description", "details",
+    "contact", "message", "only", "first", "come", "best", "working", "tested", "look", "see"
 }
 
 OFFER_PATTERNS = [
@@ -479,8 +489,8 @@ def is_generic_filler(title: str) -> bool:
     t_clean = title.strip().lower()
     return bool(re.match(r"^(free|free items?|moving items|need to gone asap|read description|pending|bt100|urgent move out sale|stuff|household items|house hold items|\?+)$", t_clean))
 
-def classify_listing_title(title: str, price: str = "", price_num: float = 0.0) -> Dict[str, str]:
-    """Matches a listing title against the taxonomy or generates a clean fallback product entity."""
+def classify_listing_title(title: str, price: str = "", price_num: float = 0.0, photo_alt: str = "", description: str = "") -> Dict[str, str]:
+    """Matches a listing title, photo visual description, and seller description against the taxonomy or generates a clean fallback product entity."""
     if is_priced_item(title=title, price=price, price_num=price_num) or is_seeking_offers(title) or is_spam_or_wtb(title):
         return {
             "slug": "not-free-priced",
@@ -495,10 +505,14 @@ def classify_listing_title(title: str, price: str = "", price_num: float = 0.0) 
             "category": "Miscellaneous"
         }
 
-    t_lower = f" {title.lower()} "
+    # Clean photo_alt by stripping standard location boilerplate like ' in Melbourne, VIC'
+    clean_alt = re.sub(r"\s+in\s+[A-Za-z\s]+,\s*(?:VIC|NSW|QLD|WA|SA|TAS|ACT|NT).*$", "", photo_alt or "", flags=re.I).strip()
+    clean_desc = (description or "")[:300].strip()
+
+    search_corpus = f" {title.lower()} {clean_alt.lower()} {clean_desc.lower()} "
 
     for entry in PRODUCT_TAXONOMY:
-        if re.search(entry["pattern"], t_lower):
+        if re.search(entry["pattern"], search_corpus):
             return {
                 "slug": entry["slug"],
                 "name": entry["name"],
@@ -507,6 +521,10 @@ def classify_listing_title(title: str, price: str = "", price_num: float = 0.0) 
 
     # Fallback to intelligent head-noun extraction
     head_name = extract_core_product_phrase(title)
+    if clean_alt and (head_name == "Miscellaneous Items" or len(head_name.split()) < 2):
+        alt_head = extract_core_product_phrase(clean_alt)
+        if alt_head != "Miscellaneous Items":
+            head_name = alt_head
     slug = re.sub(r"[^\w]+", "-", head_name.lower()).strip("-")
     if not slug:
         slug = "misc-free-items"

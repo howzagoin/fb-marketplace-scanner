@@ -1,5 +1,6 @@
 // State
 let currentTab = 'listings';
+let selectedListingIds = new Set();
 let rulesCache = [];
 let scanStatusPollTimer = null;
 
@@ -41,9 +42,6 @@ const modalClose = document.getElementById('modalClose');
 const btnCancelRule = document.getElementById('btnCancelRule');
 const ruleForm = document.getElementById('ruleForm');
 const modalTitle = document.getElementById('modalTitle');
-const sessionModal = document.getElementById('sessionModal');
-const sessionModalClose = document.getElementById('sessionModalClose');
-const btnOpenFbTab = document.getElementById('btnOpenFbTab');
 const logsTableBody = document.getElementById('logsTableBody');
 const btnRefreshLogs = document.getElementById('btnRefreshLogs');
 const settingsForm = document.getElementById('settingsForm');
@@ -93,11 +91,8 @@ function initTabs() {
 
 // Event Listeners
 function initEventListeners() {
-    btnConnectFb.addEventListener('click', openSessionModal);
-    sessionModalClose.addEventListener('click', closeSessionModal);
-    if (btnOpenFbTab) {
-        btnOpenFbTab.addEventListener('click', handleOpenFbTab);
-    }
+    initBatchActionBar();
+    btnConnectFb.addEventListener('click', handleConnectFacebook);
 
     btnScanNow.addEventListener('click', () => handleTriggerScan());
     if (btnEmptyScan) btnEmptyScan.addEventListener('click', () => handleTriggerScan());
@@ -180,131 +175,50 @@ async function checkScannerStatus() {
             if (s.is_scanning) {
                 scannerPill.className = 'pill pill-running';
                 scannerStatusText.textContent = s.status_message || 'Scanning in progress...';
-                btnScanNow.disabled = true;
+                setScanButtonState(true);
             } else {
                 scannerPill.className = 'pill pill-idle';
                 scannerStatusText.textContent = `Scanner: ${s.status_message || 'Idle'}`;
-                btnScanNow.disabled = false;
+                if (!scanMonitorTimer && !manualScanStarting) setScanButtonState(false);
+                if (!scanMonitorTimer && !manualScanStarting && s.last_scan_result) {
+                    document.getElementById('scanResult').textContent = scanResultMessage(s.last_scan_result);
+                }
             }
 
             // Update Session Pill
             if (s.session && s.session.valid) {
-                sessionPill.className = 'pill pill-success';
-                sessionStatusText.textContent = `Facebook: ${s.session.status_text || 'Active'}`;
+                sessionPill.className = s.session.verified ? 'pill pill-success' : 'pill pill-warning';
+                sessionStatusText.textContent = s.session.verified ? 'Facebook: Connected' : 'Facebook: Checking connection';
             } else {
                 sessionPill.className = 'pill pill-warning';
-                sessionStatusText.textContent = 'Facebook: Needs Login';
+                sessionStatusText.textContent = 'Facebook: Not connected';
             }
 
-            // Update Main Session Banner
-            const banner = document.getElementById('mainSessionBanner');
-            const bIcon = document.getElementById('mainSessionIcon');
-            const bTitle = document.getElementById('mainSessionTitle');
-            const bDesc = document.getElementById('mainSessionDesc');
-            const bBtn = document.getElementById('btnBannerConnect');
-
-            if (banner) {
-                if (s.session && s.session.valid) {
-                    banner.className = 'session-status-banner banner-active';
-                    if (bIcon) bIcon.textContent = '✅';
-                    if (bTitle) {
-                        bTitle.style.color = '#22c55e';
-                        bTitle.textContent = 'Facebook Account: Connected & Active';
-                    }
-                    if (bDesc) bDesc.textContent = '24/7 background scanner is authenticated and searching for matching marketplace items.';
-                    if (bBtn) {
-                        bBtn.textContent = '⚙️ Manage Session';
-                        bBtn.className = 'btn btn-secondary btn-sm';
-                    }
-                } else {
-                    banner.className = 'session-status-banner banner-warning';
-                    if (bIcon) bIcon.textContent = '⚠️';
-                    if (bTitle) {
-                        bTitle.style.color = '#f59e0b';
-                        bTitle.textContent = 'Facebook Account: Not Connected (Login Required)';
-                    }
-                    if (bDesc) bDesc.textContent = 'Scanner cannot retrieve live listings without Facebook authentication. Connect your account to enable scanning.';
-                    if (bBtn) {
-                        bBtn.textContent = '🔑 Connect Facebook (2FA)';
-                        bBtn.className = 'btn btn-primary btn-sm';
-                    }
-                }
-            }
         }
     } catch (e) {
         console.error('Failed to poll scanner status:', e);
+        sessionPill.className = 'pill pill-warning';
+        sessionStatusText.textContent = 'Facebook: Connection unavailable';
     }
 }
 
-// Connect Facebook Session Modal & Handlers
-function openSessionModal() {
-    sessionModal.classList.remove('hidden');
-}
-
-function closeSessionModal() {
-    sessionModal.classList.add('hidden');
-}
-
-async function handleLaunchDesktopBrowser() {
-    showToast('Launching desktop browser for sign-in...', 'info');
-    // Invoke Windows registered protocol handler to pop up Connect-Facebook.bat
+// The registered local connector reads Facebook cookies from the existing browser.
+function handleConnectFacebook() {
+    window.open('https://www.facebook.com/', 'fb-marketplace-login');
     window.location.href = 'fb-scanner://login';
-    try {
-        const res = await fetch('/api/session/login', { method: 'POST' });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message, 'info');
-        } else {
-            showToast(data.error || 'Opening browser on your desktop...', 'info');
-        }
-    } catch (e) {
-        showToast('Local launcher triggered. Please complete sign-in in the opened browser.', 'info');
-    }
-}
-
-async function handleSaveCookies(e) {
-    e.preventDefault();
-    const cUser = inputCUser.value.trim();
-    const xs = inputXs.value.trim();
-    const raw = inputRawCookies.value.trim();
-
-    let payload = {};
-    if (raw) {
-        payload = { cookies: raw };
-    } else if (cUser && xs) {
-        payload = {
-            cookies: [
-                { name: 'c_user', value: cUser },
-                { name: 'xs', value: xs }
-            ]
-        };
-    } else {
-        showToast('Please enter both c_user and xs, or paste raw cookies.', 'danger');
-        return;
-    }
-
-    try {
-        showToast('Saving and verifying Facebook session...', 'info');
-        const res = await fetch('/api/session/cookies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (data.success) {
-            showToast(data.message || 'Facebook session activated!', 'info');
-            closeSessionModal();
-            checkScannerStatus();
-        } else {
-            showToast(data.error || 'Invalid session cookies', 'danger');
-        }
-    } catch (e) {
-        showToast('Error saving cookies: ' + e.message, 'danger');
-    }
+    showToast('Sign in in the Facebook tab if needed. The connection will update automatically.', 'info');
 }
 
 let isScanRunning = false;
 let scanMonitorTimer = null;
+let manualScanStarting = false;
+
+function scanResultMessage(result) {
+    if (!result) return '';
+    if (result.status !== 'success') return result.message || 'Scan failed. No successful result available.';
+    if (!Number.isInteger(result.count_new) || !Number.isInteger(result.count_found)) return 'Scan finished. Item counts unavailable.';
+    return `${result.count_new} new item${result.count_new === 1 ? '' : 's'} added (${result.count_found} found).`;
+}
 
 function setScanButtonState(running) {
     isScanRunning = running;
@@ -329,10 +243,16 @@ async function handleTriggerScan(ruleId = null) {
         return;
     }
 
+    manualScanStarting = true;
     setScanButtonState(true);
+    const resultDisplay = document.getElementById('scanResult');
+    resultDisplay.textContent = 'Scanning Facebook for new items...';
     showToast('Starting Facebook Marketplace scan...', 'info');
 
     try {
+        const before = await (await fetch('/api/scanner/status')).json();
+        if (!before.success || !before.status) throw new Error('Could not read scanner status.');
+        const previousScanTime = before.status.last_scan_time;
         const isValidId = (typeof ruleId === 'number' && !isNaN(ruleId)) || (typeof ruleId === 'string' && /^\d+$/.test(ruleId));
         const body = isValidId ? { filter_id: parseInt(ruleId) } : {};
         const res = await fetch('/api/scanner/run', {
@@ -344,6 +264,7 @@ async function handleTriggerScan(ruleId = null) {
 
         if (!data.success) {
             setScanButtonState(false);
+            resultDisplay.textContent = data.error || 'Failed to start scan';
             showToast(data.error || 'Failed to start scan', 'danger');
             return;
         }
@@ -361,12 +282,15 @@ async function handleTriggerScan(ruleId = null) {
                 const sData = await sRes.json();
                 if (sData.success && sData.status) {
                     const st = sData.status;
-                    if (!st.is_scanning) {
+                    if (!st.is_scanning && st.last_scan_time !== previousScanTime) {
                         clearInterval(scanMonitorTimer);
                         scanMonitorTimer = null;
                         setScanButtonState(false);
 
-                        showToast(`✅ ${st.status_message || 'Scan completed successfully!'}`, 'success');
+                        const message = scanResultMessage(st.last_scan_result) || st.status_message || 'Scan result unavailable.';
+                        resultDisplay.textContent = message;
+                        showToast(message, st.last_scan_result?.status === 'success' ? 'success' : 'danger');
+                        await checkScannerStatus();
                         await loadListings();
                         await loadCondensedProducts();
                         await loadRules();
@@ -375,17 +299,15 @@ async function handleTriggerScan(ruleId = null) {
                 }
             } catch (pollErr) {}
 
-            if (elapsed >= 90) {
-                clearInterval(scanMonitorTimer);
-                scanMonitorTimer = null;
-                setScanButtonState(false);
-                loadListings();
-            }
+            if (elapsed >= 90) resultDisplay.textContent = 'Still scanning Facebook. Waiting for the result...';
         }, 2000);
 
     } catch (e) {
         setScanButtonState(false);
+        resultDisplay.textContent = 'Scan could not start: ' + e.message;
         showToast('Error: ' + e.message, 'danger');
+    } finally {
+        manualScanStarting = false;
     }
 }
 
@@ -462,12 +384,11 @@ function renderListings(items, totalActive = 0) {
         const isFree = item.price.toLowerCase().includes('free') || item.price_num === 0;
         const priceClass = isFree ? 'price-tag price-free' : 'price-tag';
 
-        const proxyUrl = `/api/image-proxy?id=${encodeURIComponent(item.listing_id || '')}&url=${encodeURIComponent(item.image_url || '')}`;
-        const isExpiredUrl = Boolean(item.image_url && item.image_url.match(/[?&]oe=([0-9a-fA-F]+)/) && parseInt(item.image_url.match(/[?&]oe=([0-9a-fA-F]+)/)[1], 16) < (Date.now() / 1000));
-        const initialImgSrc = isExpiredUrl ? proxyUrl : (item.image_url || proxyUrl);
+        const proxyUrl = `/api/image-proxy?id=${encodeURIComponent(item.listing_id || '')}&v=3`;
+        const initialImgSrc = proxyUrl;
 
         const imgHtml = (item.image_url || item.listing_id)
-            ? `<img src="${initialImgSrc}" referrerpolicy="no-referrer" alt="${escapeHtml(item.title)}" class="listing-img" loading="lazy" onerror="if(!this.src.includes('/api/image-proxy')){this.src='${proxyUrl}';}else{this.onerror=null;this.parentElement.innerHTML='<div class=\\'listing-img-placeholder\\'>&#x1F4E6;</div>';}" />`
+            ? `<img src="${initialImgSrc}" referrerpolicy="no-referrer" alt="${escapeHtml(item.title)}" class="listing-img" loading="lazy" />`
             : `<div class="listing-img-placeholder">&#x1F4E6;</div>`;
 
         const dateStr = formatDateDMY(item.first_seen);
@@ -480,6 +401,9 @@ function renderListings(items, totalActive = 0) {
 
         card.innerHTML = `
             <div class="listing-img-container">
+                <label class="card-select-overlay" title="Select item for bulk actions" onclick="event.stopPropagation();">
+                    <input type="checkbox" class="listing-select-cb" data-id="${item.listing_id}" ${selectedListingIds.has(item.listing_id) ? 'checked' : ''}>
+                </label>
                 <a href="${item.url}" target="_blank" rel="noopener noreferrer" class="listing-img-link" title="Open listing on Facebook Marketplace">
                     ${imgHtml}
                 </a>
@@ -515,6 +439,31 @@ function renderListings(items, totalActive = 0) {
                 </div>
             </div>
         `;
+
+        const image = card.querySelector('.listing-img');
+        if (image) image.addEventListener('error', () => {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'listing-img-placeholder';
+            placeholder.textContent = 'Photo unavailable';
+            image.replaceWith(placeholder);
+        }, { once: true });
+
+        // Card multi-select checkbox handler
+        const selectCb = card.querySelector('.listing-select-cb');
+        if (selectCb) {
+            if (selectCb.checked) card.classList.add('is-selected');
+            selectCb.addEventListener('change', (e) => {
+                e.stopPropagation();
+                if (selectCb.checked) {
+                    selectedListingIds.add(item.listing_id);
+                    card.classList.add('is-selected');
+                } else {
+                    selectedListingIds.delete(item.listing_id);
+                    card.classList.remove('is-selected');
+                }
+                updateBatchActionBar();
+            });
+        }
 
         // Interest feedback handlers
         const btnInterested = card.querySelector('.btn-interested');
@@ -584,6 +533,7 @@ function renderListings(items, totalActive = 0) {
 
         listingsGrid.appendChild(card);
     });
+    updateBatchActionBar();
 }
 
 async function handleSetListingInterest(listingId, status) {

@@ -2,16 +2,18 @@ import os
 import time
 import threading
 import urllib.request
-from flask import Flask, jsonify, request, send_from_directory, Response, send_file
+from urllib.parse import urlsplit
+from flask import Flask, jsonify, request, send_from_directory, Response, send_file, redirect
 from backend.config import Config
 from backend.db import (
     init_db, get_filters, get_filter, save_filter, delete_filter,
     get_listings, update_listing_status, get_scan_logs,
     get_setting, set_setting,
+    get_connection,
     get_interests, add_interest, delete_interest,
     toggle_interest_instant_alert, record_listing_interest
 )
-from backend.scraper import get_session_info, capture_interactive_login, save_raw_cookies
+from backend.scraper import get_session_info, capture_interactive_login, save_raw_cookies, recover_listing_photos, is_cached_photo_valid, save_photo_bytes
 from backend.scheduler import scan_manager
 from backend.product_analyzer import (
     get_condensed_products, set_product_category_interest, reconcile_all_excluded_interests
@@ -35,7 +37,7 @@ def index():
 
 @app.route("/login")
 def login():
-    return send_from_directory(app.static_folder, "login.html")
+    return redirect("/")
 
 @app.route("/styles.css")
 def serve_root_css():
@@ -134,14 +136,48 @@ def api_get_listings():
 
     return jsonify({"success": True, "listings": items, "count": len(items), "total_active": total_active})
 
+def is_facebook_image_url(url):
+    try:
+        parsed = urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        return (
+            parsed.scheme == "https" and parsed.port in (None, 443)
+            and not parsed.username and not parsed.password
+            and any(host == domain or host.endswith("." + domain) for domain in ("fbcdn.net", "fbsbx.com"))
+        )
+    except (ValueError, TypeError):
+        return False
+
+class FacebookImageRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not is_facebook_image_url(newurl):
+            raise ValueError("Image redirect outside Facebook CDN rejected.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+photo_recovery_lock = threading.Semaphore(2)
+photo_retry_after = {}
+
 @app.route("/api/image-proxy", methods=["GET"])
 def api_image_proxy():
     image_url = request.args.get("url")
     listing_id = request.args.get("id") or ""
+    if listing_id and not (listing_id.isascii() and listing_id.isdigit()):
+        return jsonify({"success": False, "error": "Invalid listing ID."}), 400
+    if listing_id:
+        connection = get_connection()
+        try:
+            listing = connection.execute("SELECT image_url FROM listings WHERE listing_id = ?", (listing_id,)).fetchone()
+        finally:
+            connection.close()
+        if not listing:
+            return jsonify({"success": False, "error": "Listing not found."}), 404
+        image_url = listing["image_url"]
+    if image_url and not is_facebook_image_url(image_url):
+        return jsonify({"success": False, "error": "Only HTTPS Facebook CDN images are supported."}), 400
     placeholder_svg = b'''<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
         <rect width="300" height="300" fill="#1e293b"/>
         <text x="50%" y="46%" dominant-baseline="middle" text-anchor="middle" font-size="44" fill="#64748b">&#x1F4E6;</text>
-        <text x="50%" y="64%" dominant-baseline="middle" text-anchor="middle" font-size="13" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="600" fill="#94a3b8">Marketplace Item</text>
+        <text x="50%" y="64%" dominant-baseline="middle" text-anchor="middle" font-size="13" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="600" fill="#94a3b8">Photo unavailable</text>
     </svg>'''
 
     # 1. Check local persistent disk cache
@@ -150,7 +186,7 @@ def api_image_proxy():
 
     if listing_id:
         cached_file = cache_dir / f"{listing_id}.jpg"
-        if cached_file.exists() and cached_file.stat().st_size > 500:
+        if is_cached_photo_valid(listing_id):
             return send_file(str(cached_file), mimetype="image/jpeg", max_age=2592000)
 
     # 2. Download and save to disk if URL is available
@@ -162,15 +198,14 @@ def api_image_proxy():
         }
         try:
             req = urllib.request.Request(image_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                data = resp.read()
+            opener = urllib.request.build_opener(FacebookImageRedirectHandler())
+            with opener.open(req, timeout=6) as resp:
+                data = resp.read(10 * 1024 * 1024 + 1)
                 content_type = resp.headers.get("Content-Type", "image/jpeg")
+                if len(data) > 10 * 1024 * 1024 or not content_type.lower().startswith("image/") or "svg" in content_type.lower():
+                    raise ValueError("Unsupported image response.")
                 if len(data) > 500 and listing_id:
-                    try:
-                        with open(cache_dir / f"{listing_id}.jpg", "wb") as f:
-                            f.write(data)
-                    except Exception:
-                        pass
+                    save_photo_bytes(listing_id, data, content_type)
                 return Response(data, mimetype=content_type, headers={
                     "Cache-Control": "public, max-age=2592000",
                     "Access-Control-Allow-Origin": "*"
@@ -178,8 +213,21 @@ def api_image_proxy():
         except Exception:
             pass
 
+    if listing_id:
+        with photo_recovery_lock:
+            cached_file = cache_dir / f"{listing_id}.jpg"
+            if not is_cached_photo_valid(listing_id) and time.monotonic() >= photo_retry_after.get(listing_id, 0):
+                try:
+                    recover_listing_photos([{"listing_id": listing_id}])
+                except Exception as error:
+                    app.logger.warning("Photo recovery unavailable: %s", type(error).__name__)
+                if not is_cached_photo_valid(listing_id):
+                    photo_retry_after[listing_id] = time.monotonic() + 900
+            if is_cached_photo_valid(listing_id):
+                return send_file(str(cached_file), mimetype="image/jpeg", max_age=2592000)
+
     return Response(placeholder_svg, mimetype="image/svg+xml", headers={
-        "Cache-Control": "public, max-age=86400",
+        "Cache-Control": "no-store",
         "Access-Control-Allow-Origin": "*"
     })
 
@@ -189,6 +237,35 @@ def api_set_listing_interest(listing_id):
     status = data.get("status", "none")  # 'interested', 'not_interested', 'none'
     res = record_listing_interest(listing_id, status)
     return jsonify(res)
+
+@app.route("/api/listings/batch-interest", methods=["POST"])
+def api_batch_listing_interest():
+    data = request.json or {}
+    listing_ids = data.get("listing_ids", [])
+    status = data.get("status", "not_interested")  # 'not_interested', 'interested', 'dismiss', 'none'
+    
+    if not listing_ids:
+        return jsonify({"success": False, "error": "No listing IDs provided"}), 400
+        
+    results = []
+    keywords_all = []
+    for lid in listing_ids:
+        if status == "dismiss":
+            update_listing_status(lid, is_dismissed=True)
+            results.append({"listing_id": lid, "status": "dismissed"})
+        else:
+            res = record_listing_interest(lid, status)
+            results.append(res)
+            if res.get("keywords"):
+                keywords_all.extend(res["keywords"])
+            
+    return jsonify({
+        "success": True,
+        "count": len(results),
+        "status": status,
+        "keywords": list(set(keywords_all)),
+        "results": results
+    })
 
 @app.route("/api/listings/<listing_id>/favorite", methods=["POST"])
 def api_toggle_favorite(listing_id):
@@ -292,11 +369,16 @@ def api_session_status():
 @app.route("/api/session/login", methods=["POST"])
 def api_session_login():
     """Starts interactive login with real browser (Brave/Chrome) with desktop window station."""
+    if os.name != "nt":
+        return jsonify({
+            "success": False,
+            "error": "Server-side login cannot open your Windows browser. Sign in using your local browser and import the session cookies."
+        }), 409
     def run_interactive():
         import subprocess
         # On Windows, launching via explorer/start ensures interactive desktop focus
         try:
-            bat_path = os.path.join(Config.BASE_DIR, "Connect-Facebook.bat")
+            bat_path = os.path.join(app.root_path, "Connect-Facebook.bat")
             if os.path.exists(bat_path):
                 subprocess.Popen(["cmd.exe", "/c", "start", "", bat_path], shell=True)
             else:

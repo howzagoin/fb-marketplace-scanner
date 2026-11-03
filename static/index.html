@@ -19,7 +19,7 @@
                     <span class="logo-text">FB Marketplace <span class="accent">Scanner</span></span>
                 </div>
                 <div class="status-pills">
-                    <div id="sessionPill" class="pill pill-warning" style="cursor: pointer;" title="Click to manage Facebook login" onclick="window.location.href='/login'">
+                    <div id="sessionPill" class="pill pill-warning" title="Facebook connection status" role="status" aria-live="polite">
                         <span class="dot"></span> <span id="sessionStatusText">Checking Session...</span>
                     </div>
                     <div id="scannerPill" class="pill pill-idle">
@@ -28,30 +28,15 @@
                 </div>
             </div>
             <div class="header-right">
-                <button id="btnConnectFb" class="btn btn-secondary" title="Sign in via browser with 2FA to refresh Facebook session">
-                    🔑 Connect Facebook (2FA)
+                <button id="btnConnectFb" class="btn btn-secondary" title="Use your existing Brave Facebook login">
+                    Connect Facebook
                 </button>
                 <button id="btnScanNow" class="btn btn-primary" title="Trigger immediate scan across all enabled rules">
                     ⚡ Scan Now
                 </button>
             </div>
         </header>
-
-        <!-- Facebook Session Account Banner -->
-        <div id="mainSessionBanner" class="session-status-banner banner-warning">
-            <div class="session-banner-info">
-                <span id="mainSessionIcon" class="session-banner-icon">⚠️</span>
-                <div>
-                    <strong id="mainSessionTitle" class="session-banner-title">Facebook Account: Not Connected</strong>
-                    <span id="mainSessionDesc" class="session-banner-desc">
-                        Scanner cannot retrieve live listings because Facebook requires authentication. Connect your account to enable 24/7 scanning.
-                    </span>
-                </div>
-            </div>
-            <button id="btnBannerConnect" class="btn btn-primary btn-sm" onclick="openSessionModal()">
-                🔑 Connect Facebook (2FA)
-            </button>
-        </div>
+        <div id="scanResult" role="status" aria-live="polite" style="margin:12px 0; font-weight:600;"></div>
 
         <!-- Main Tabs Navigation -->
         <nav class="app-nav">
@@ -104,6 +89,28 @@
                         <input type="checkbox" id="checkShowDismissed"> 🗑️ Show Dismissed
                     </label>
                     <button id="btnRefreshListings" class="btn btn-icon" title="Reload feed from local database">🔄</button>
+                </div>
+            </div>
+
+            <!-- Bulk Selection & Action Toolbar -->
+            <div id="batchSelectionBar" class="batch-selection-bar hidden">
+                <div class="batch-select-info">
+                    <label class="checkbox-label" style="font-weight: 600; cursor: pointer; color: var(--text-primary);">
+                        <input type="checkbox" id="checkSelectAllListings"> Select All Visible
+                    </label>
+                    <span id="selectedCountBadge" class="badge-selected">0 selected</span>
+                </div>
+                <div class="batch-actions">
+                    <button id="btnBatchNotInterested" class="btn btn-danger btn-batch" title="Mark all selected as Not Interested and auto-exclude similar items">
+                        👎 Not Interested (<span class="batch-count">0</span>)
+                    </button>
+                    <button id="btnBatchInterested" class="btn btn-success btn-batch" title="Mark all selected as Interested">
+                        👍 Interested (<span class="batch-count">0</span>)
+                    </button>
+                    <button id="btnBatchDismiss" class="btn btn-secondary btn-batch" title="Dismiss all selected items">
+                        🗑️ Dismiss (<span class="batch-count">0</span>)
+                    </button>
+                    <button id="btnBatchClear" class="btn btn-icon btn-batch-cancel" title="Deselect All">✕</button>
                 </div>
             </div>
 
@@ -349,60 +356,9 @@
         </div>
     </div>
 
-    <!-- Facebook Session Connector Modal -->
-    <div id="sessionModal" class="modal-overlay hidden">
-        <div class="modal-content" style="max-width: 560px;">
-            <div class="modal-header">
-                <h3>Connect Facebook Session (2FA)</h3>
-                <button id="sessionModalClose" class="btn-close">&times;</button>
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <h4 style="font-size: 0.95rem; margin-bottom: 8px; color: var(--accent);">Option 1: Launch Desktop Browser (Brave / Chrome)</h4>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
-                    Launches a visible browser window on your Windows desktop. Sign in, complete 2FA, and your session will be saved and synced automatically.
-                </p>
-                <button id="btnLaunchDesktopBrowser" class="btn btn-primary" style="width: 100%; margin-bottom: 8px;">
-                    🚀 Launch Desktop Browser for Sign-In
-                </button>
-                <div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center;">
-                    Or double-click <strong style="color: var(--text-primary);">Connect Facebook</strong> on your Windows Desktop.
-                </div>
-            </div>
-
-            <div style="border-top: 1px solid var(--border-color); padding-top: 18px;">
-                <h4 style="font-size: 0.95rem; margin-bottom: 8px; color: var(--accent);">Option 2: Instant Cookie Import (100% Reliable)</h4>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
-                    If you are already logged in to Facebook in your daily browser, copy your cookies (from DevTools or any cookie extension) and paste them here:
-                </p>
-                <form id="cookieForm">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="inputCUser">c_user (User ID)</label>
-                            <input type="text" id="inputCUser" placeholder="e.g. 1000889218...">
-                        </div>
-                        <div class="form-group">
-                            <label for="inputXs">xs (Session Token)</label>
-                            <input type="text" id="inputXs" placeholder="e.g. 21%3ABz...">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="inputRawCookies">Or paste raw cookies / JSON</label>
-                        <input type="text" id="inputRawCookies" placeholder="c_user=...; xs=... or JSON array">
-                    </div>
-                    <div class="modal-actions" style="margin-top: 14px;">
-                        <button type="submit" class="btn btn-primary" style="width: 100%;">
-                            💾 Save & Activate Facebook Session
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <!-- Notification Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="/js/main.js?v=2.3.0"></script>
+    <script src="/js/main.js?v=2.4.2"></script>
 </body>
 </html>
