@@ -4,14 +4,36 @@ import sys
 import time
 import json
 import logging
+import math
+import urllib.request
+import tempfile
 from typing import List, Dict, Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from playwright.sync_api import sync_playwright
+
+from pathlib import Path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from backend.config import Config
 from schema import SearchFilter, ListingItem
 
 logger = logging.getLogger(__name__)
+_rejected_session = None
+_verified_session = None
+
+def _session_signature():
+    try:
+        stat = Config.SESSION_FILE.stat()
+        return (str(Config.SESSION_FILE), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return None
+
+def mark_session_rejected():
+    """Remember Facebook's rejection until the saved session is replaced."""
+    global _rejected_session
+    _rejected_session = _session_signature()
 
 def get_browser_executable() -> Optional[str]:
     candidates = [
@@ -92,12 +114,18 @@ def build_marketplace_url(f: SearchFilter) -> str:
 
 def is_session_valid() -> bool:
     """Checks if a saved session file exists and contains essential cookies."""
-    if Config.SESSION_FILE.exists():
+    if Config.SESSION_FILE.exists() and _session_signature() != _rejected_session:
         try:
             with open(Config.SESSION_FILE, "r", encoding="utf-8") as file:
                 data = json.load(file)
                 cookies = data.get("cookies", [])
-                if any(c.get("name") == "c_user" for c in cookies):
+                essential = {
+                    c.get("name") for c in cookies
+                    if c.get("value")
+                    and c.get("domain", "").lstrip(".") in ("facebook.com", "www.facebook.com")
+                    and (c.get("expires", -1) <= 0 or c["expires"] > time.time())
+                }
+                if {"c_user", "xs"}.issubset(essential):
                     return True
         except Exception:
             pass
@@ -105,12 +133,14 @@ def is_session_valid() -> bool:
 
 def get_session_info() -> Dict[str, Any]:
     valid = is_session_valid()
+    verified = valid and _verified_session == _session_signature()
     modified_time = None
     if Config.SESSION_FILE.exists():
         modified_time = Config.SESSION_FILE.stat().st_mtime
     return {
         "valid": valid,
-        "status_text": "Active" if valid else "Needs Login",
+        "verified": verified,
+        "status_text": "Active" if verified else ("Saved (not verified)" if valid else "Needs Login"),
         "exists": Config.SESSION_FILE.exists() or valid,
         "path": str(Config.SESSION_FILE),
         "last_saved": modified_time
@@ -139,8 +169,8 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
                     else:
                         for k, v in parsed.items():
                             cookie_list.append({"name": k, "value": str(v), "domain": ".facebook.com", "path": "/"})
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                return {"success": False, "error": "Invalid cookie JSON."}
         
         if not cookie_list:
             # Parse header string: c_user=123; xs=abc
@@ -170,15 +200,26 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
                 cookie_list.append({"name": k, "value": str(v), "domain": ".facebook.com", "path": "/"})
 
     # Standardize cookies for Playwright
+    if not isinstance(cookie_list, list) or not all(isinstance(c, dict) for c in cookie_list):
+        return {"success": False, "error": "Cookies must be a list of cookie objects."}
     formatted_cookies = []
-    has_c_user = False
+    essential_names = set()
     for c in cookie_list:
         name = c.get("name")
         val = c.get("value")
-        if not name or val is None:
+        if not name or not val:
             continue
-        if name == "c_user":
-            has_c_user = True
+        try:
+            expires = float(c.get("expires", -1))
+        except (ValueError, TypeError, OverflowError):
+            return {"success": False, "error": "Cookie expiry must be a finite number."}
+        if not math.isfinite(expires):
+            return {"success": False, "error": "Cookie expiry must be a finite number."}
+        domain = c.get("domain", ".facebook.com")
+        if not isinstance(domain, str) or domain.lstrip(".") not in ("facebook.com", "www.facebook.com"):
+            continue
+        if name in ("c_user", "xs") and (expires <= 0 or expires > time.time()):
+            essential_names.add(name)
         same_site_raw = str(c.get("sameSite", "")).lower()
         if "strict" in same_site_raw:
             same_site = "Strict"
@@ -190,16 +231,16 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
         formatted_cookies.append({
             "name": str(name),
             "value": str(val),
-            "domain": c.get("domain", ".facebook.com"),
+            "domain": domain,
             "path": c.get("path", "/"),
-            "expires": float(c.get("expires", time.time() + 31536000)),
+            "expires": expires,
             "httpOnly": bool(c.get("httpOnly", name in ("xs", "sb", "fr"))),
             "secure": bool(c.get("secure", True)),
             "sameSite": same_site
         })
 
-    if not has_c_user:
-        return {"success": False, "error": "Missing essential 'c_user' cookie. Please include c_user and xs."}
+    if not {"c_user", "xs"}.issubset(essential_names):
+        return {"success": False, "error": "Include nonempty, unexpired Facebook c_user and xs cookies."}
 
     storage_state = {
         "cookies": formatted_cookies,
@@ -210,102 +251,196 @@ def save_raw_cookies(cookie_input: Any) -> Dict[str, Any]:
     with open(Config.SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(storage_state, f, indent=2)
 
-    return {"success": True, "message": f"Successfully imported {len(formatted_cookies)} cookies. Facebook session is active!"}
+    return {"success": True, "message": f"Saved {len(formatted_cookies)} cookies. Run a scan to verify Facebook access."}
 
 def capture_interactive_login(timeout_seconds: int = 600) -> Dict[str, Any]:
     """
-    Opens a visible browser using Brave or Chrome with a persistent profile for user sign-in.
-    Waits for authentication cookies (c_user) to be stored, then saves the storage state.
+    Safely captures Facebook session cookies.
+    1. First, inspects open browsers (Chrome, Brave, Edge) non-invasively via CDP WITHOUT navigating or modifying any open tabs.
+    2. If no valid session is found or CDP is unavailable, launches a dedicated, isolated browser window for sign-in.
     """
-    result = {"success": False, "message": ""}
-    browser_exe = get_browser_executable()
-    user_data_dir = str(Config.DATA_DIR / "browser_profile")
-    os.makedirs(user_data_dir, exist_ok=True)
+    if sys.platform != "win32":
+        return {"success": False, "message": "Connect Facebook from your Windows browser."}
 
-    is_headless = False
-    if sys.platform != "win32" and not os.environ.get("DISPLAY"):
-        is_headless = True
+    local_app_data = os.environ.get("LOCALAPPDATA")
+
+    # 1. Non-invasive check on open Chrome, Brave, Edge DevTools ports
+    browser_ports = []
+    if local_app_data:
+        for b_dir in [
+            ("Google", "Chrome"),
+            ("BraveSoftware", "Brave-Browser"),
+            ("Microsoft", "Edge")
+        ]:
+            pf = os.path.join(local_app_data, *b_dir, "User Data", "DevToolsActivePort")
+            if os.path.exists(pf):
+                try:
+                    with open(pf, encoding="utf-8") as f:
+                        lines = [line.strip() for line in f if line.strip()]
+                        if len(lines) >= 2 and lines[0].isdigit() and lines[1].startswith("/devtools/browser/"):
+                            browser_ports.append((b_dir[1], f"ws://127.0.0.1:{int(lines[0])}{lines[1]}"))
+                except Exception:
+                    pass
 
     with sync_playwright() as p:
+        for b_name, endpoint in browser_ports:
+            try:
+                print(f"[+] Checking active session in {b_name} (non-invasive, never touches tabs)...")
+                browser = p.chromium.connect_over_cdp(endpoint, timeout=3000)
+                if browser.contexts:
+                    context = browser.contexts[0]
+                    cookies = context.cookies(["https://www.facebook.com/", "https://facebook.com/"])
+                    fb_cookies = [c for c in cookies if c.get("domain", "").lstrip(".") in ("facebook.com", "www.facebook.com")]
+                    names = {c.get("name") for c in fb_cookies if c.get("value") and (c.get("expires", -1) <= 0 or c["expires"] > time.time())}
+                    browser.close()
+                    if {"c_user", "xs"}.issubset(names):
+                        print(f"[+] Found active Facebook login in {b_name}! Saving cookies...")
+                        Config.SESSION_DIR.mkdir(parents=True, exist_ok=True)
+                        with open(Config.SESSION_FILE, "w", encoding="utf-8") as output:
+                            json.dump({"cookies": fb_cookies, "origins": []}, output, indent=2)
+                        return {"success": True, "message": f"Facebook connected using existing {b_name} session."}
+                else:
+                    browser.close()
+            except Exception:
+                continue
+
+        # 2. If no active session found or browser ports locked, open dedicated standalone window
+        print("[+] Opening dedicated Facebook login window (isolated profile)...")
+        user_data_dir = str(Config.DATA_DIR / "browser_profile")
+        os.makedirs(user_data_dir, exist_ok=True)
+        browser_exe = get_browser_executable()
         launch_kwargs = {
             "user_data_dir": user_data_dir,
-            "headless": is_headless,
+            "headless": False,
             "args": [
-                "--start-maximized",
                 "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-infobars"
+                "--no-default-browser-check",
+                "--no-first-run"
             ]
         }
         if browser_exe:
             launch_kwargs["executable_path"] = browser_exe
 
         try:
-            print(f"[+] Opening browser window for Facebook login (timeout: {timeout_seconds}s)...")
             context = p.chromium.launch_persistent_context(**launch_kwargs)
             page = context.pages[0] if context.pages else context.new_page()
+            page.goto("https://www.facebook.com/login/", wait_until="domcontentloaded", timeout=30000)
+            print("[+] Waiting for Facebook login in the dedicated window...")
 
-            page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-            """)
+            deadline = time.time() + timeout_seconds
+            while time.time() < deadline:
+                cookies = context.cookies(["https://www.facebook.com/", "https://facebook.com/"])
+                fb_cookies = [c for c in cookies if c.get("domain", "").lstrip(".") in ("facebook.com", "www.facebook.com")]
+                names = {c.get("name") for c in fb_cookies if c.get("value") and (c.get("expires", -1) <= 0 or c["expires"] > time.time())}
+                if {"c_user", "xs"}.issubset(names):
+                    print("[+] Successful login detected!")
+                    Config.SESSION_DIR.mkdir(parents=True, exist_ok=True)
+                    with open(Config.SESSION_FILE, "w", encoding="utf-8") as output:
+                        json.dump({"cookies": fb_cookies, "origins": []}, output, indent=2)
+                    context.close()
+                    return {"success": True, "message": "Facebook connected successfully in dedicated window."}
+                time.sleep(1.5)
+            context.close()
+            return {"success": False, "message": "Login timed out. Please try again."}
+        except Exception as error:
+            logger.error("Dedicated login error: %s", error)
+            return {"success": False, "message": f"Login window error: {str(error)}"}
 
-            print("[+] Navigating to https://www.facebook.com/login/ ...")
+def valid_photo_bytes(data):
+    if not 500 < len(data) <= 10 * 1024 * 1024:
+        return False
+    return (
+        (data.startswith(b"\xff\xd8") and data.endswith(b"\xff\xd9"))
+        or (data.startswith(b"\x89PNG\r\n\x1a\n") and data[-12:] == b"\x00\x00\x00\x00IEND\xaeB`\x82")
+        or (data.startswith(b"RIFF") and data[8:12] == b"WEBP" and int.from_bytes(data[4:8], "little") + 8 == len(data))
+    )
+
+def is_cached_photo_valid(listing_id):
+    try:
+        return valid_photo_bytes((Config.DATA_DIR / "images" / f"{listing_id}.jpg").read_bytes())
+    except OSError:
+        return False
+
+def save_photo_bytes(listing_id, data, content_type):
+    if not str(listing_id).isascii() or not str(listing_id).isdigit():
+        raise ValueError("Invalid listing ID")
+    if not content_type.lower().startswith("image/") or not valid_photo_bytes(data):
+        raise ValueError("Incomplete or invalid photo")
+    directory = Config.DATA_DIR / "images"
+    directory.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=directory, suffix=".tmp", delete=False) as output:
+            temporary = output.name
+            output.write(data)
+        os.replace(temporary, directory / f"{listing_id}.jpg")
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+def cache_listing_photo(context, listing_id, url):
+    if is_cached_photo_valid(listing_id):
+        return
+    parsed = urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not any(host == domain or host.endswith("." + domain) for domain in ("fbcdn.net", "fbsbx.com")):
+        raise ValueError("Unsupported photo source")
+    for attempt in range(2):
+        try:
+            response = context.request.get(url, headers={"Referer": "https://www.facebook.com/"}, timeout=10000)
+            if not response.ok:
+                raise ValueError(f"Photo download failed: HTTP {response.status}")
+            save_photo_bytes(listing_id, response.body(), response.headers.get("content-type", ""))
+            return
+        except Exception:
+            if attempt == 1:
+                raise
+
+def recover_listing_photos(listings, context=None):
+    """Capture only original listing photos; reuse the scan browser when provided."""
+    pending = [str(row["listing_id"]) for row in listings
+               if str(row["listing_id"]).isascii() and str(row["listing_id"]).isdigit()
+               and not is_cached_photo_valid(row["listing_id"])]
+    if not pending:
+        return {"recovered": [], "unavailable": []}
+    if context is None:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
             try:
-                page.goto("https://www.facebook.com/login/", timeout=30000, wait_until="domcontentloaded")
-            except Exception as nav_e:
-                print(f"[*] Initial navigation: {nav_e} (continuing)")
-
-            print("[*] Please log into Facebook and complete 2FA in the opened browser window.")
-            print("[*] Monitoring for active session cookies...")
-            start_time = time.time()
-            authenticated = False
-            last_notice = 0
-
-            while time.time() - start_time < timeout_seconds:
-                time.sleep(2)
-                elapsed = int(time.time() - start_time)
-                if elapsed - last_notice >= 15:
-                    last_notice = elapsed
-                    rem = int(timeout_seconds - elapsed)
-                    print(f"    Waiting for Facebook 2FA / login... ({rem}s remaining)")
-
-                try:
-                    cookies = context.cookies()
-                    if any(c.get("name") == "c_user" for c in cookies):
-                        print("[+] 'c_user' cookie detected! Finalizing session capture...")
-                        time.sleep(3)  # Allow browser to finalize all auth tokens (xs, fr, datr)
-                        authenticated = True
-                        break
-                except Exception as loop_e:
-                    if not context.pages:
-                        print("[!] Browser window closed by user.")
-                        break
-
-            if authenticated:
-                context.storage_state(path=str(Config.SESSION_FILE))
-                result["success"] = True
-                result["message"] = "Facebook session verified and saved successfully!"
-            else:
-                result["success"] = False
-                result["message"] = "Login timed out or window was closed before Facebook session was verified."
-
+                current = browser.new_context(storage_state=str(Config.SESSION_FILE), locale="en-AU")
+                return recover_listing_photos(listings, context=current)
+            finally:
+                browser.close()
+    recovered, unavailable = [], []
+    page = context.new_page()
+    try:
+        for index, listing_id in enumerate(pending):
             try:
-                context.close()
-            except Exception:
-                pass
-        except Exception as e:
-            result["success"] = False
-            result["message"] = f"Interactive login error: {str(e)}"
-
-    return result
+                page.goto(f"https://www.facebook.com/marketplace/item/{listing_id}/", wait_until="domcontentloaded", timeout=20000)
+                if "login" in page.url or "checkpoint" in page.url:
+                    unavailable.extend(pending[index:])
+                    break
+                if f"/marketplace/item/{listing_id}" not in page.url:
+                    unavailable.append(listing_id)
+                    continue
+                photo = page.locator('img[alt^="Product photo of "]').first
+                photo.wait_for(timeout=6000)
+                cache_listing_photo(context, listing_id, photo.get_attribute("src") or "")
+                recovered.append(listing_id)
+            except Exception as error:
+                logger.warning("Photo recovery failed for %s: %s", listing_id, type(error).__name__)
+                unavailable.append(listing_id)
+    finally:
+        page.close()
+    return {"recovered": recovered, "unavailable": unavailable}
 
 def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[ListingItem]:
     """
     Scrapes Facebook Marketplace listings for the given filter using Playwright.
     """
+    global _verified_session
     target_url = build_marketplace_url(f)
+    session_signature = _session_signature()
     items: List[ListingItem] = []
     seen_ids = set()
     coords = get_approx_coordinates(f.postcode)
@@ -360,8 +495,11 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
             # Check if Facebook redirected to a login wall or checkpoint
             current_url = page.url.lower()
             if "login" in current_url or "checkpoint" in current_url or page.query_selector("input#email, input[name='email']"):
+                mark_session_rejected()
                 logger.warning(f"Facebook blocked request with login wall: {page.url}")
                 raise RuntimeError("Facebook session missing or expired. Redirected to login wall (authentication required).")
+
+            _verified_session = session_signature
 
             # Scroll multiple times to trigger lazy-loaded listings
             for _ in range(max_scrolls):
@@ -405,24 +543,12 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                     if img_elem:
                         img_url = img_elem.get_attribute("src") or img_elem.get_attribute("data-src") or ""
 
-                    # Automatically save image to persistent local disk cache
-                    if img_url and img_url.startswith("http"):
+                    # Preserve the photo while its Facebook URL is still usable.
+                    if img_url:
                         try:
-                            img_cache_dir = Config.DATA_DIR / "images"
-                            img_cache_dir.mkdir(parents=True, exist_ok=True)
-                            cached_file = img_cache_dir / f"{listing_id}.jpg"
-                            if not cached_file.exists():
-                                req = urllib.request.Request(img_url, headers={
-                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                                    "Referer": "https://www.facebook.com/"
-                                })
-                                with urllib.request.urlopen(req, timeout=4) as img_resp:
-                                    img_data = img_resp.read()
-                                    if len(img_data) > 500:
-                                        with open(cached_file, "wb") as f_img:
-                                            f_img.write(img_data)
-                        except Exception:
-                            pass
+                            cache_listing_photo(context, listing_id, img_url)
+                        except Exception as error:
+                            logger.warning("Photo capture failed for %s; attempting original listing: %s", listing_id, type(error).__name__)
 
                     title = "Marketplace Item"
                     price_str = "Free" if (f.max_price == 0) else ""
@@ -478,6 +604,12 @@ def scrape_marketplace_listings(f: SearchFilter, max_scrolls: int = 5) -> List[L
                 except Exception as ex:
                     logger.debug(f"Error parsing item element: {ex}")
                     continue
+
+            missing_photos = [{"listing_id": item.listing_id} for item in items if not is_cached_photo_valid(item.listing_id)]
+            if missing_photos:
+                recovery = recover_listing_photos(missing_photos, context=context)
+                if recovery["unavailable"]:
+                    logger.warning("Scan finished with %d unavailable original photos", len(recovery["unavailable"]))
 
         finally:
             browser.close()

@@ -91,6 +91,7 @@ function initTabs() {
 
 // Event Listeners
 function initEventListeners() {
+    initConnectModal();
     initBatchActionBar();
     btnConnectFb.addEventListener('click', handleConnectFacebook);
 
@@ -241,9 +242,82 @@ async function checkScannerStatus() {
 
 // The registered local connector reads Facebook cookies from the existing browser.
 function handleConnectFacebook() {
-    window.open('https://www.facebook.com/', 'fb-marketplace-login');
-    window.location.href = 'fb-scanner://login';
-    showToast('Sign in in the Facebook tab if needed. The connection will update automatically.', 'info');
+    const modal = document.getElementById('connectModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function initConnectModal() {
+    const modal = document.getElementById('connectModal');
+    const btnClose = document.getElementById('connectModalClose');
+    const btnCancel = document.getElementById('btnCancelConnect');
+    const btnSaveCookies = document.getElementById('btnSaveCookies');
+    const btnLaunch = document.getElementById('btnLaunchDesktopLogin');
+    const inputCookies = document.getElementById('inputRawCookies');
+    const statusBox = document.getElementById('cookieImportStatus');
+
+    const closeModal = () => {
+        if (modal) modal.classList.add('hidden');
+        if (statusBox) statusBox.className = 'hidden';
+    };
+
+    if (btnClose) btnClose.addEventListener('click', closeModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeModal);
+
+    if (btnSaveCookies) {
+        btnSaveCookies.addEventListener('click', async () => {
+            const raw = inputCookies ? inputCookies.value.trim() : '';
+            if (!raw) {
+                showToast('Please paste your c_user and xs cookies or JSON array.', 'warning');
+                return;
+            }
+            btnSaveCookies.disabled = true;
+            btnSaveCookies.textContent = 'Saving...';
+            if (statusBox) statusBox.className = 'hidden';
+
+            try {
+                const res = await fetch('/api/session/cookies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cookies: raw })
+                });
+                const data = await res.json();
+                if (statusBox) {
+                    statusBox.classList.remove('hidden');
+                    if (data.success) {
+                        statusBox.style.background = 'rgba(34, 197, 94, 0.15)';
+                        statusBox.style.color = '#22c55e';
+                        statusBox.style.border = '1px solid #22c55e';
+                        statusBox.textContent = `✅ ${data.message || 'Session activated successfully!'}`;
+                        showToast('Facebook connected successfully!', 'success');
+                        setTimeout(closeModal, 1500);
+                        checkScannerStatus();
+                    } else {
+                        statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                        statusBox.style.color = '#ef4444';
+                        statusBox.style.border = '1px solid #ef4444';
+                        statusBox.textContent = `❌ ${data.error || 'Failed to parse cookies. Ensure c_user and xs are present.'}`;
+                        showToast('Failed to save cookies: ' + (data.error || ''), 'danger');
+                    }
+                }
+            } catch (e) {
+                if (statusBox) {
+                    statusBox.classList.remove('hidden');
+                    statusBox.textContent = `❌ Network Error: ${e.message}`;
+                }
+            } finally {
+                btnSaveCookies.disabled = false;
+                btnSaveCookies.textContent = '💾 Save & Activate Session';
+            }
+        });
+    }
+
+    if (btnLaunch) {
+        btnLaunch.addEventListener('click', () => {
+            window.location.href = 'fb-scanner://login';
+            showToast('Launching dedicated login window. Sign in there to connect.', 'info');
+            closeModal();
+        });
+    }
 }
 
 let isScanRunning = false;

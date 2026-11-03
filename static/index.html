@@ -322,6 +322,52 @@
         </main>
     </div>
 
+    <!-- Facebook Connect / Cookie Modal -->
+    <div id="connectModal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h3>Connect Facebook Account</h3>
+                <button id="connectModalClose" class="btn-close">&times;</button>
+            </div>
+            <div style="padding: 16px 0;">
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px;">
+                    To prevent Facebook from disrupting your daily browsing or logging out your personal account, the scanner operates in an isolated environment. Choose your preferred connection method:
+                </p>
+
+                <!-- Method 1: Paste Cookies -->
+                <div style="background: var(--bg-primary); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 14px;">
+                    <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; color: var(--text-primary);">
+                        📋 Method 1: Paste Session Cookies (Direct & Instant)
+                    </div>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 8px;">
+                        Paste your Facebook <code>c_user</code> and <code>xs</code> cookies (or raw cookie string / JSON from Cookie-Editor):
+                    </p>
+                    <textarea id="inputRawCookies" rows="3" placeholder="e.g. c_user=100012345; xs=7%3Aabcde... or JSON" style="width: 100%; font-family: monospace; font-size: 0.8rem; padding: 8px; background: #0f172a; color: #e2e8f0; border: 1px solid var(--border-color); border-radius: 6px; resize: vertical; margin-bottom: 8px;"></textarea>
+                    <button type="button" id="btnSaveCookies" class="btn btn-primary btn-sm" style="width: 100%;">
+                        💾 Save & Activate Session
+                    </button>
+                    <div id="cookieImportStatus" class="hidden" style="margin-top: 8px; font-size: 0.8rem; padding: 6px 10px; border-radius: 4px;"></div>
+                </div>
+
+                <!-- Method 2: Launch Isolated Desktop Browser -->
+                <div style="background: var(--bg-primary); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 6px; color: var(--text-primary);">
+                        🖥️ Method 2: Launch Dedicated Desktop Login
+                    </div>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">
+                        Opens a dedicated, isolated browser window for sign-in. It will never touch or navigate your existing browser tabs.
+                    </p>
+                    <button type="button" id="btnLaunchDesktopLogin" class="btn btn-secondary btn-sm" style="width: 100%;">
+                        🚀 Open Isolated Login Window
+                    </button>
+                </div>
+            </div>
+            <div class="modal-actions" style="margin-top: 10px;">
+                <button type="button" id="btnCancelConnect" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Rule Edit Modal -->
     <div id="ruleModal" class="modal-overlay hidden">
         <div class="modal-content">
