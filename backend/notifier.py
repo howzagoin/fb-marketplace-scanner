@@ -2,7 +2,7 @@ import smtplib
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List
+from typing import List, Dict, Any
 from backend.config import Config
 from schema import ListingItem, SearchFilter
 from backend.db import get_setting
@@ -18,8 +18,10 @@ def send_alert_email(filter_obj: SearchFilter, new_items: List[ListingItem]) -> 
         logger.warning("No recipient alert email configured.")
         return False
 
-    smtp_user = Config.SMTP_USER
-    smtp_pass = Config.SMTP_PASS
+    smtp_user = get_setting("smtp_user", Config.SMTP_USER)
+    smtp_pass = get_setting("smtp_pass", Config.SMTP_PASS)
+    smtp_server = get_setting("smtp_server", Config.SMTP_SERVER)
+    smtp_port = int(get_setting("smtp_port", Config.SMTP_PORT))
 
     has_instant = any(getattr(item, 'instant_match', False) for item in new_items)
     priority_prefix = "⭐ [PRIORITY ALERT] " if has_instant else "[Marketplace Alert] "
@@ -60,8 +62,8 @@ def send_alert_email(filter_obj: SearchFilter, new_items: List[ListingItem]) -> 
     """
 
     if not smtp_user or not smtp_pass:
-        logger.info(f"[SIMULATED EMAIL] To: {recipient} | Subject: {subject} | {len(new_items)} items. (Configure SMTP_USER and SMTP_PASS in .env to send real emails)")
-        return True
+        logger.warning("Alert not sent: configure SMTP_USER and SMTP_PASS.")
+        return False
 
     try:
         msg = MIMEMultipart("alternative")
@@ -72,7 +74,7 @@ def send_alert_email(filter_obj: SearchFilter, new_items: List[ListingItem]) -> 
         part = MIMEText(html_content, "html")
         msg.attach(part)
 
-        with smtplib.SMTP(Config.SMTP_SERVER, Config.SMTP_PORT) as server:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_user, recipient, msg.as_string())
@@ -81,3 +83,46 @@ def send_alert_email(filter_obj: SearchFilter, new_items: List[ListingItem]) -> 
     except Exception as e:
         logger.error(f"Failed to send email alert: {e}")
         return False
+
+def send_test_email() -> Dict[str, Any]:
+    """Sends a verification email to test SMTP connectivity."""
+    recipient = get_setting("alert_email", Config.DEFAULT_ALERT_EMAIL)
+    if not recipient:
+        return {"success": False, "error": "No recipient email set."}
+
+    smtp_user = get_setting("smtp_user", Config.SMTP_USER)
+    smtp_pass = get_setting("smtp_pass", Config.SMTP_PASS)
+    smtp_server = get_setting("smtp_server", Config.SMTP_SERVER)
+    smtp_port = int(get_setting("smtp_port", Config.SMTP_PORT))
+
+    if not smtp_user or not smtp_pass:
+        return {
+            "success": False,
+            "error": "SMTP_USER or SMTP_PASS is missing. Configure your Gmail address and 16-character App Password."
+        }
+
+    try:
+        msg = MIMEMultipart()
+        msg["Subject"] = "🧪 FB Marketplace Scanner - Test Alert"
+        msg["From"] = smtp_user
+        msg["To"] = recipient
+
+        body = f"""
+        <html><body>
+            <h2>Test Alert Succeeded!</h2>
+            <p>Your Facebook Marketplace Scanner email alert integration is active and sending to <strong>{recipient}</strong>.</p>
+            <p>Instant alerts for starred products will be delivered here automatically when found.</p>
+        </body></html>
+        """
+        msg.attach(MIMEText(body, "html"))
+
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, recipient, msg.as_string())
+
+        return {"success": True, "message": f"Test alert successfully sent to {recipient}."}
+    except smtplib.SMTPAuthenticationError as e:
+        return {"success": False, "error": f"SMTP Authentication failed (check user & 16-character App Password): {e}"}
+    except Exception as e:
+        return {"success": False, "error": f"SMTP Error: {str(e)}"}

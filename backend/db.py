@@ -521,6 +521,15 @@ def delete_interest(interest_id: int):
         VALUES (?, ?)
         ON CONFLICT(keyword) DO UPDATE SET deleted_at = excluded.deleted_at
         """, (kw, time.time()))
+
+        # Reset any listings that were marked not_interested specifically for this category
+        from backend.product_analyzer import classify_listing_title
+        cursor.execute("SELECT listing_id, title FROM listings WHERE interest_status = 'not_interested'")
+        for other in cursor.fetchall():
+            cls = classify_listing_title(other["title"] or "")
+            if cls["name"].lower() == kw or cls["slug"].lower() == kw:
+                cursor.execute("UPDATE listings SET interest_status = 'none', is_dismissed = 0 WHERE listing_id = ?", (other["listing_id"],))
+
     cursor.execute("DELETE FROM user_interests WHERE id = ?", (interest_id,))
     conn.commit()
     conn.close()

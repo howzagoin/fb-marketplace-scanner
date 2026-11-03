@@ -695,84 +695,65 @@ def set_product_category_interest(product_slug: str, status: str, instant_alert:
 
 def reconcile_all_excluded_interests() -> Dict[str, Any]:
     """
-    Analyzes the products the user marked not interested in,
-    intelligently maps them to canonical product categories,
-    cleans up fragmented single-word excluded entries, and populates
-    the clean merged Excluded profile.
+    Cleans up fragmented single-word excluded entries and ensures
+    only genuine canonical taxonomy categories and user-specified exclusions
+    exist in the Excluded list, strictly respecting tombstoned deletions.
     """
-    USER_DISMISSED_TITLES = [
-        "fish tank", "treadmill", "dog kennel", "piano", "display shelf",
-        "casa domani juice dispenser", "pokemon tins", "dressing table",
-        "toy kitchen", "rainbow unicorn braiding hair", "washing machine",
-        "free gym equipment", "free shelf", "upright+piano+", "cot and mattress",
-        "assorted puzzles", "dinosaurs invites", "box of kids toys", "free trampoline",
-        "free fabric scraps", "assorted railway train memorabilia - laminated pictures",
-        "stranger things 3 poster 60x90cm free", "free guava tree", "free working printers",
-        "circulon skillets", "cabinets free", "clothing shelf", "kids free kitchen",
-        "free books for kids", "free - king single bed",
-        "silicone slow feeder for dogs for free", "free - dryer", "1999 savage lancer",
-        "garage sale on today open", "free airfresheners", "free - qenda ultimate fibre",
-        "free vintage desk", "free simpson sirocco 500 dryer", "free london piano",
-        "agave", "free outside metal cat tower", "dolls house", "dictionary",
-        "holy bible (nkjv)", "bedside tables", "free kids car", "pykler",
-        "vintage fridge", "dishwasher", "free miele washing machine (pickup richmond)",
-        "free bricks"
-    ]
-
     conn = get_connection()
     c = conn.cursor()
 
     # Retrieve existing user-set interests so we DO NOT erase user preferences
     c.execute("SELECT keyword, instant_alert, type FROM user_interests WHERE type = 'interested'")
     interested_items = [dict(r) for r in c.fetchall()]
-    interested_names = {i["keyword"].lower() for i in interested_items}
+    interested_names = {i["keyword"].lower().strip() for i in interested_items}
 
     # Retrieve explicit tombstone deletions so removed exclusions NEVER resurrect
     c.execute("SELECT keyword FROM deleted_exclusions")
-    deleted_exclusions = {r["keyword"].lower() for r in c.fetchall()}
+    deleted_exclusions = {r["keyword"].lower().strip() for r in c.fetchall()}
 
     excluded_slugs = set()
     excluded_names = {}
 
-    # 1. Harvest from USER_DISMISSED_TITLES
-    for title in USER_DISMISSED_TITLES:
-        classification = classify_listing_title(title)
-        slug = classification["slug"]
-        name = classification["name"]
-        excluded_slugs.add(slug)
-        excluded_names[slug] = name
+    TAXONOMY_MAP = {entry["slug"]: entry["name"] for entry in PRODUCT_TAXONOMY}
 
-    # 2. Harvest from any listing the user marked dismissed / not_interested in the DB
-    c.execute("SELECT title, price, price_num FROM listings WHERE is_dismissed = 1 OR interest_status = 'not_interested'")
+    # 1. Harvest from listings where user explicitly clicked 'not_interested' (NOT mere dismissals)
+    c.execute("SELECT title, price, price_num, photo_alts, description FROM listings WHERE interest_status = 'not_interested'")
     for row_dis in c.fetchall():
         d_title = row_dis["title"] or ""
         if d_title:
-            cls = classify_listing_title(d_title, price=row_dis["price"] or "", price_num=row_dis["price_num"] or 0.0)
+            alt = row_dis["photo_alts"] if "photo_alts" in row_dis.keys() else ""
+            desc = row_dis["description"] if "description" in row_dis.keys() else ""
+            cls = classify_listing_title(d_title, price=row_dis["price"] or "", price_num=row_dis["price_num"] or 0.0, photo_alt=alt or "", description=desc or "")
             d_slug = cls["slug"]
-            d_name = cls["name"]
-            excluded_slugs.add(d_slug)
-            excluded_names[d_slug] = d_name
+            # ONLY include if it matched a genuine taxonomy category, never arbitrary fallback nouns
+            if d_slug in TAXONOMY_MAP and d_slug not in {"generic-filler-titles", "hard-rubbish-verge", "spam-ads-wtb"}:
+                excluded_slugs.add(d_slug)
+                excluded_names[d_slug] = TAXONOMY_MAP[d_slug]
 
-    # 3. Always include street rubbish, commercial spam, and generic filler
+    # 2. Always include street rubbish and commercial spam if not interested
     NUISANCE_SLUGS = [
         "hard-rubbish-verge",
-        "spam-ads-wtb",
-        "generic-filler-titles",
-        "clothing-apparel",
-        "timber-firewood"
+        "spam-ads-wtb"
     ]
     for ns in NUISANCE_SLUGS:
-        for entry in PRODUCT_TAXONOMY:
-            if entry["slug"] == ns and entry["name"].lower() not in interested_names:
-                excluded_slugs.add(ns)
-                excluded_names[ns] = entry["name"]
+        if ns in TAXONOMY_MAP and TAXONOMY_MAP[ns].lower().strip() not in interested_names:
+            excluded_slugs.add(ns)
+            excluded_names[ns] = TAXONOMY_MAP[ns]
 
-    # 4. Harvest any existing user exclusions
+    # 3. Preserve existing manually entered exclusions that are not tombstoned
     c.execute("SELECT keyword FROM user_interests WHERE type = 'excluded'")
     for r_ex in c.fetchall():
-        k = r_ex["keyword"]
-        excluded_slugs.add(k.lower())
-        excluded_names[k.lower()] = k
+        k = (r_ex["keyword"] or "").strip()
+        k_low = k.lower()
+        if k and k_low not in deleted_exclusions and k_low not in interested_names:
+            # Skip fragmented noise words like 'And ...', 'All ...', 'Take', 'You Want'
+            if len(k.split()) == 1 and k_low in DESCRIPTOR_ADJECTIVES:
+                continue
+            if k_low.startswith("and ") or k_low.startswith("all ") or k_low.startswith("you "):
+                continue
+            # If it's a known category, use canonical name
+            excluded_slugs.add(k_low)
+            excluded_names[k_low] = k
 
     # Clear and rewrite clean canonical merged excluded products
     c.execute("DELETE FROM user_interests WHERE type = 'excluded'")
@@ -860,7 +841,7 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
 
     return {
         "success": True,
-        "total_source_listings": len(USER_DISMISSED_TITLES),
+        "total_source_listings": len(inserted_categories),
         "excluded_categories_count": len(inserted_categories),
         "excluded_categories": inserted_categories,
         "affected_listings": affected_excluded,

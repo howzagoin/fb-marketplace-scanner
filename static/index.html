@@ -258,6 +258,27 @@
 
                     <div class="form-group" style="background: var(--bg-primary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-weight: 600; font-size: 0.95rem;">📧 Outgoing Email Delivery (SMTP Sender)</span>
+                            <button type="button" id="btnTestEmail" class="btn btn-secondary btn-sm" style="padding: 4px 10px; font-size: 0.8rem;">🧪 Send Test Email</button>
+                        </div>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">
+                            Configure an authenticated email account to send notifications to <strong>maclatchy@gmail.com</strong>. For Gmail, use your Gmail address and a 16-character Google App Password (generated at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color: var(--accent);">myaccount.google.com/apppasswords</a>).
+                        </p>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px;">
+                            <div>
+                                <label for="inputSmtpUser" style="font-size: 0.85rem;">Sender Gmail / SMTP Account</label>
+                                <input type="text" id="inputSmtpUser" placeholder="e.g. sender@gmail.com">
+                            </div>
+                            <div>
+                                <label for="inputSmtpPass" style="font-size: 0.85rem;">16-Char Google App Password</label>
+                                <input type="password" id="inputSmtpPass" placeholder="e.g. abcd efgh ijkl mnop">
+                            </div>
+                        </div>
+                        <div id="testEmailStatus" class="hidden" style="margin-top: 8px; font-size: 0.85rem; padding: 8px 12px; border-radius: 6px;"></div>
+                    </div>
+
+                    <div class="form-group" style="background: var(--bg-primary); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
                             <span style="font-weight: 600; font-size: 0.95rem;">⏱️ Automated Scan Schedule</span>
                             <span class="pill pill-success" id="scheduleStatusPill">
                                 <span class="dot"></span> Active

@@ -410,6 +410,10 @@ def api_get_settings():
         "success": True,
         "settings": {
             "alert_email": get_setting("alert_email", Config.DEFAULT_ALERT_EMAIL),
+            "smtp_user": get_setting("smtp_user", Config.SMTP_USER),
+            "smtp_server": get_setting("smtp_server", Config.SMTP_SERVER),
+            "smtp_port": int(get_setting("smtp_port", Config.SMTP_PORT)),
+            "has_smtp_pass": bool(get_setting("smtp_pass", Config.SMTP_PASS)),
             "auto_scan_enabled": get_setting("auto_scan_enabled", "1") == "1",
             "scan_interval_minutes": int(get_setting("scan_interval_minutes", "60")),
             "listing_retention_days": int(get_setting("listing_retention_days", "14"))
@@ -421,6 +425,14 @@ def api_save_settings():
     data = request.json or {}
     if "alert_email" in data:
         set_setting("alert_email", str(data["alert_email"]).strip())
+    if "smtp_user" in data:
+        set_setting("smtp_user", str(data["smtp_user"]).strip())
+    if "smtp_pass" in data and data["smtp_pass"]:
+        set_setting("smtp_pass", str(data["smtp_pass"]).strip())
+    if "smtp_server" in data:
+        set_setting("smtp_server", str(data["smtp_server"]).strip())
+    if "smtp_port" in data:
+        set_setting("smtp_port", str(int(data["smtp_port"])))
     if "auto_scan_enabled" in data:
         set_setting("auto_scan_enabled", "1" if data["auto_scan_enabled"] else "0")
     if "scan_interval_minutes" in data:
@@ -428,6 +440,12 @@ def api_save_settings():
     if "listing_retention_days" in data:
         set_setting("listing_retention_days", str(int(data["listing_retention_days"])))
     return jsonify({"success": True, "message": "Settings updated"})
+
+@app.route("/api/settings/test-email", methods=["POST"])
+def api_test_email():
+    from backend.notifier import send_test_email
+    res = send_test_email()
+    return jsonify(res)
 
 @app.route("/api/logs", methods=["GET"])
 def api_get_logs():

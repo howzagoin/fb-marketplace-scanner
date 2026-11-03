@@ -149,6 +149,43 @@ function initEventListeners() {
 
     btnRefreshLogs.addEventListener('click', loadLogs);
     settingsForm.addEventListener('submit', handleSaveSettings);
+    const btnTestEmail = document.getElementById('btnTestEmail');
+    if (btnTestEmail) {
+        btnTestEmail.addEventListener('click', async () => {
+            btnTestEmail.disabled = true;
+            btnTestEmail.textContent = 'Sending...';
+            const statusBox = document.getElementById('testEmailStatus');
+            if (statusBox) statusBox.className = 'hidden';
+            try {
+                const res = await fetch('/api/settings/test-email', { method: 'POST' });
+                const data = await res.json();
+                if (statusBox) {
+                    statusBox.classList.remove('hidden');
+                    if (data.success) {
+                        statusBox.style.background = 'rgba(34, 197, 94, 0.15)';
+                        statusBox.style.color = '#22c55e';
+                        statusBox.style.border = '1px solid #22c55e';
+                        statusBox.textContent = `✅ ${data.message}`;
+                        showToast('Test email sent successfully!', 'success');
+                    } else {
+                        statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+                        statusBox.style.color = '#ef4444';
+                        statusBox.style.border = '1px solid #ef4444';
+                        statusBox.textContent = `❌ ${data.error}`;
+                        showToast('Test email failed: ' + data.error, 'danger');
+                    }
+                }
+            } catch (e) {
+                if (statusBox) {
+                    statusBox.classList.remove('hidden');
+                    statusBox.textContent = `❌ Network Error: ${e.message}`;
+                }
+            } finally {
+                btnTestEmail.disabled = false;
+                btnTestEmail.textContent = '🧪 Send Test Email';
+            }
+        });
+    }
 }
 
 function refreshAll() {
@@ -750,6 +787,10 @@ async function loadSettings() {
             const checkAuto = document.getElementById('checkAutoScan');
             checkAuto.checked = isAuto;
             document.getElementById('inputScanInterval').value = s.scan_interval_minutes || 60;
+            const smtpUserEl = document.getElementById('inputSmtpUser');
+            if (smtpUserEl) smtpUserEl.value = s.smtp_user || '';
+            const smtpPassEl = document.getElementById('inputSmtpPass');
+            if (smtpPassEl && s.has_smtp_pass) smtpPassEl.placeholder = '•••••••••••••••• (Configured)';
 
             const retentionDays = s.listing_retention_days || 14;
             const sliderRetention = document.getElementById('sliderRetentionDays');
@@ -791,7 +832,9 @@ async function handleSaveSettings(e) {
         alert_email: document.getElementById('inputAlertEmail').value.trim(),
         auto_scan_enabled: document.getElementById('checkAutoScan').checked,
         scan_interval_minutes: parseInt(document.getElementById('inputScanInterval').value) || 60,
-        listing_retention_days: retentionDays
+        listing_retention_days: retentionDays,
+        smtp_user: document.getElementById('inputSmtpUser') ? document.getElementById('inputSmtpUser').value.trim() : '',
+        smtp_pass: document.getElementById('inputSmtpPass') ? document.getElementById('inputSmtpPass').value.trim() : ''
     };
 
     try {
