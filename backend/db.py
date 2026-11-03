@@ -86,6 +86,14 @@ def init_db():
     )
     """)
 
+    # Explicitly removed exclusions tombstone table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS deleted_exclusions (
+        keyword TEXT PRIMARY KEY,
+        deleted_at REAL NOT NULL
+    )
+    """)
+
     conn.commit()
 
     # Column migrations for existing tables
@@ -504,6 +512,15 @@ def add_interest(keyword: str, instant_alert: bool = True, interest_type: str = 
 def delete_interest(interest_id: int):
     conn = get_connection()
     cursor = conn.cursor()
+    cursor.execute("SELECT keyword, type FROM user_interests WHERE id = ?", (interest_id,))
+    row = cursor.fetchone()
+    if row and row["type"] == "excluded":
+        kw = row["keyword"].strip().lower()
+        cursor.execute("""
+        INSERT INTO deleted_exclusions (keyword, deleted_at)
+        VALUES (?, ?)
+        ON CONFLICT(keyword) DO UPDATE SET deleted_at = excluded.deleted_at
+        """, (kw, time.time()))
     cursor.execute("DELETE FROM user_interests WHERE id = ?", (interest_id,))
     conn.commit()
     conn.close()

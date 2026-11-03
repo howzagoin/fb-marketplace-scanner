@@ -709,6 +709,10 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
     interested_items = [dict(r) for r in c.fetchall()]
     interested_names = {i["keyword"].lower() for i in interested_items}
 
+    # Retrieve explicit tombstone deletions so removed exclusions NEVER resurrect
+    c.execute("SELECT keyword FROM deleted_exclusions")
+    deleted_exclusions = {r["keyword"].lower() for r in c.fetchall()}
+
     excluded_slugs = set()
     excluded_names = {}
 
@@ -759,12 +763,16 @@ def reconcile_all_excluded_interests() -> Dict[str, Any]:
     seen_inserted = set()
     now = time.time()
     for slug, prod_name in sorted(excluded_names.items(), key=lambda x: str(x[1])):
-        # Don't exclude if the user explicitly added it as interested
-        if prod_name.lower() in interested_names or slug in interested_names:
+        # Don't exclude if the user explicitly added it as interested OR deleted it
+        p_low = prod_name.lower().strip()
+        s_low = slug.lower().strip()
+        if p_low in interested_names or s_low in interested_names:
             continue
-        if prod_name.lower() in seen_inserted:
+        if p_low in deleted_exclusions or s_low in deleted_exclusions:
             continue
-        seen_inserted.add(prod_name.lower())
+        if p_low in seen_inserted:
+            continue
+        seen_inserted.add(p_low)
         c.execute("""
         INSERT OR IGNORE INTO user_interests (keyword, instant_alert, type, created_at)
         VALUES (?, 0, 'excluded', ?)
